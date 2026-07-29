@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON LOGS EXTRA
+# Orquestador principal del sistema de gestión - CON CORRECCIÓN DE ESTADO
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -60,7 +60,14 @@ def procesar_mensaje(mensaje, sender):
         logger.info(f"   📞 DESPUÉS de llamar a asesores.procesar_consulta()")
         logger.info(f"   📞 Respuesta recibida: {respuesta[:50]}...")
         
-        sesiones[sender] = None  # Limpiar estado
+        # SOLO limpiar el estado si la consulta se procesó correctamente
+        if "✅ *Consulta enviada*" in respuesta:
+            sesiones[sender] = None
+            logger.info(f"   📞 Consulta exitosa. Estado limpiado.")
+        else:
+            # Mantener estado para reintentar
+            logger.info(f"   📞 La consulta falló. Manteniendo estado 'esperando_consulta_asesor' para {sender}")
+        
         return respuesta
     
     # === MENÚ PRINCIPAL ===
