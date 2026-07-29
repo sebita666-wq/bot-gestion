@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# Sistema de chat en vivo con asesores - USANDO LOGGER
+# Sistema de chat en vivo con asesores - CON LOGS Y FORMATO CORREGIDO
 
 from utils import planillas
 from utils import config
@@ -67,7 +67,7 @@ def generar_codigo_consulta():
         return "C-0001"
 
 # ============================================================
-# 3. CREACIÓN DE CONSULTA (ESCRITURA EN SHEETS)
+# 3. CREACIÓN DE CONSULTA (ESCRITURA EN SHEETS) - CORREGIDO
 # ============================================================
 
 def crear_consulta(sender, telefono_cliente, mensaje):
@@ -80,16 +80,11 @@ def crear_consulta(sender, telefono_cliente, mensaje):
     codigo = generar_codigo_consulta()
     logger.info(f"   ✅ [crear_consulta] Código generado: {codigo}")
     
-    # 2. Preparar datos
+    # 2. Preparar datos (en el mismo formato que el script de prueba)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    nueva_consulta = [[
-        codigo,
-        fecha,
-        telefono_cliente,
-        mensaje,
-        "Pendiente",
-        ""
-    ]]
+    nueva_consulta = [
+        [codigo, fecha, telefono_cliente, mensaje, "Pendiente", ""]
+    ]
     logger.info(f"   📝 [crear_consulta] Datos a guardar: {nueva_consulta}")
     
     # 3. Intentar escribir en la planilla
