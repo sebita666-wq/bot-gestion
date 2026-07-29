@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# Sistema de chat en vivo con asesores - CON LOGS Y FORMATO CORREGIDO
+# Sistema de chat en vivo con asesores - VERSIÓN FINAL
 
 from utils import planillas
 from utils import config
@@ -67,7 +67,7 @@ def generar_codigo_consulta():
         return "C-0001"
 
 # ============================================================
-# 3. CREACIÓN DE CONSULTA (ESCRITURA EN SHEETS) - CORREGIDO
+# 3. CREACIÓN DE CONSULTA (ESCRITURA EN SHEETS) - FORMATO CORREGIDO
 # ============================================================
 
 def crear_consulta(sender, telefono_cliente, mensaje):
@@ -80,18 +80,21 @@ def crear_consulta(sender, telefono_cliente, mensaje):
     codigo = generar_codigo_consulta()
     logger.info(f"   ✅ [crear_consulta] Código generado: {codigo}")
     
-    # 2. Preparar datos (en el mismo formato que el script de prueba)
+    # 2. Preparar datos (exactamente igual que en el script de prueba)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # El formato DEBE ser una lista de listas, cada lista es una fila
     nueva_consulta = [
         [codigo, fecha, telefono_cliente, mensaje, "Pendiente", ""]
     ]
-    logger.info(f"   📝 [crear_consulta] Datos a guardar: {nueva_consulta}")
+    logger.info(f"   📝 [crear_consulta] Datos a guardar (formato): {nueva_consulta}")
     
-    # 3. Intentar escribir en la planilla
+    # 3. Intentar escribir en la planilla (usando el mismo método que el script)
     sheet_id = config.SPREADSHEETS["CONSULTAS"]
     logger.info(f"   📤 [crear_consulta] Escribiendo en CONSULTAS (ID: {sheet_id})...")
     
     try:
+        # Llamada idéntica al script de prueba
         resultado = planillas.escribir_datos(sheet_id, 'A:F', nueva_consulta)
         logger.info(f"   📥 [crear_consulta] Resultado de escritura: {resultado}")
         
