@@ -34,10 +34,7 @@ def generar_codigo_consulta():
         return "C-0001"
 
 def crear_consulta(sender, telefono_cliente, mensaje):
-    """
-    Crea una nueva consulta de cliente.
-    Asigna un código C-XXXX y lo guarda en CONSULTAS.
-    """
+    """Crea una nueva consulta de cliente. Asigna un código C-XXXX y lo guarda en CONSULTAS."""
     codigo = generar_codigo_consulta()
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -46,23 +43,16 @@ def crear_consulta(sender, telefono_cliente, mensaje):
         fecha,
         telefono_cliente,
         mensaje,
-        "Pendiente",  # Estado inicial
+        "Pendiente",
         ""  # Respuesta del asesor
     ]]
     
     if planillas.escribir_datos(config.SPREADSHEETS["CONSULTAS"], 'A:F', nueva_consulta):
-        return {
-            "codigo": codigo,
-            "estado": "Pendiente"
-        }
+        return {"codigo": codigo, "estado": "Pendiente"}
     return None
 
 def notificar_asesor(codigo, telefono_cliente, mensaje):
-    """
-    Notifica al asesor (el primero de la lista) sobre una nueva consulta.
-    En producción, esto enviaría un mensaje de WhatsApp al asesor.
-    """
-    # Buscar el primer asesor disponible (simplificado)
+    """Notifica al asesor (el primero de la lista) sobre una nueva consulta."""
     asesor = ASESORES[0]
     texto = f"""
 📞 *Nueva consulta de cliente*
@@ -79,37 +69,50 @@ Respuesta {codigo}:
     print("-" * 50)
     return True
 
+def procesar_consulta(sender, mensaje):
+    """Procesa la consulta de un cliente que está en el flujo de asesor."""
+    print(f"   📞 Procesando consulta de asesor para {sender}")
+    
+    consulta = crear_consulta(sender, sender, mensaje)
+    if consulta:
+        notificar_asesor(consulta["codigo"], sender, mensaje)
+        return f"""
+✅ *Consulta enviada*
+
+Tu consulta fue registrada con el código *{consulta['codigo']}*.
+
+Un asesor te va a responder por este mismo chat en breve.
+
+😊 Gracias por tu paciencia.
+"""
+    else:
+        return """
+❌ *Error al enviar tu consulta*
+
+Hubo un problema al registrar tu consulta. Por favor, intentá de nuevo más tarde.
+
+😊 Disculpá las molestias.
+"""
+
 def procesar_respuesta_asesor(respuesta):
-    """
-    Procesa la respuesta del asesor.
-    Busca el código C-XXXX y extrae la respuesta.
-    """
+    """Procesa la respuesta del asesor. Busca el código C-XXXX y extrae la respuesta."""
     lineas = respuesta.split('\n')
     for linea in lineas:
         if linea.strip().startswith("Respuesta C-"):
             partes = linea.split(":", 1)
             if len(partes) == 2:
-                codigo = partes[0].strip().split(" ")[1]  # "Respuesta C-0001" → "C-0001"
+                codigo = partes[0].strip().split(" ")[1]
                 mensaje = partes[1].strip()
-                return {
-                    "codigo": codigo,
-                    "respuesta": mensaje
-                }
+                return {"codigo": codigo, "respuesta": mensaje}
     return None
 
 def actualizar_consulta(codigo, respuesta):
-    """
-    Actualiza una consulta con la respuesta del asesor.
-    """
-    # Esta función es simplificada; en la práctica, actualizarías la fila en Sheets
+    """Actualiza una consulta con la respuesta del asesor."""
     print(f"✅ Consulta {codigo} respondida: {respuesta}")
     return True
 
 def verificar_timeout():
-    """
-    Verifica consultas que llevan más de TIMEOUT_MINUTOS sin respuesta.
-    En producción, se ejecutaría como un proceso en segundo plano.
-    """
+    """Verifica consultas que llevan más de TIMEOUT_MINUTOS sin respuesta."""
     datos = planillas.leer_datos(config.SPREADSHEETS["CONSULTAS"], 'A:F')
     if not datos or len(datos) < 2:
         return
@@ -121,6 +124,5 @@ def verificar_timeout():
                 fecha_consulta = datetime.strptime(fila[1], "%Y-%m-%d %H:%M:%S")
                 if (ahora - fecha_consulta) > timedelta(minutes=TIMEOUT_MINUTOS):
                     print(f"⏰ Timeout: consulta {fila[0]} sin respuesta después de {TIMEOUT_MINUTOS} minutos.")
-                    # Aquí se podría derivar al siguiente asesor o notificar al admin
             except:
                 pass

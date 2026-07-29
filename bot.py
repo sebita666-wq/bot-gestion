@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON LOGGING MEJORADO
+# Orquestador principal del sistema de gestión - CON CONTEXTO PARA ASESOR
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -9,7 +9,7 @@ import os
 import sys
 import logging
 
-# === CONFIGURACIÓN DE LOGGING (corregida, sin duplicados) ===
+# === CONFIGURACIÓN DE LOGGING ===
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -18,10 +18,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# === DICCIONARIO DE SESIONES (para recordar el estado de cada usuario) ===
+sesiones = {}
+
 # Ruta principal que recibe los mensajes de WhatsApp
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp():
-    # Obtener datos del mensaje
     mensaje = request.values.get('Body', '').strip()
     sender = request.values.get('From', '')
     
@@ -46,30 +48,48 @@ def procesar_mensaje(mensaje, sender):
     logger.info(f"🧠 Procesando mensaje: '{mensaje}' de {sender}")
     mensaje_lower = mensaje.lower().strip()
     
+    # === VERIFICAR SI EL USUARIO ESTÁ EN UN FLUJO ESPECÍFICO ===
+    estado_actual = sesiones.get(sender)
+    
+    # Si el usuario está en el flujo de asesor y escribió algo
+    if estado_actual == "esperando_consulta_asesor":
+        logger.info(f"   📞 Procesando consulta de asesor de {sender}")
+        respuesta = asesores.procesar_consulta(sender, mensaje)
+        sesiones[sender] = None  # Limpiar el estado
+        return respuesta
+    
+    # === MENÚ PRINCIPAL ===
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
         logger.info("   ✅ Intención: Menú principal")
+        sesiones[sender] = None  # Limpiar cualquier estado previo
         return mostrar_menu()
     
+    # Opción 1: Presupuesto
     if mensaje_lower == "1" or mensaje_lower.startswith("presupuesto"):
         logger.info("   ✅ Intención: Presupuesto")
         return iniciar_presupuesto(sender, mensaje)
     
+    # Opción 2: Consultar estado
     if mensaje_lower == "2" or "estado" in mensaje_lower:
         logger.info("   ✅ Intención: Consultar estado")
         return consultar_estado(sender, mensaje)
     
+    # Opción 3: Hablar con asesor
     if mensaje_lower == "3" or "asesor" in mensaje_lower:
         logger.info("   ✅ Intención: Hablar con asesor")
         return iniciar_asesor(sender, mensaje)
     
+    # Opción 4: Reclamos o sugerencias
     if mensaje_lower == "4" or "reclamo" in mensaje_lower:
         logger.info("   ✅ Intención: Reclamos o sugerencias")
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
     
+    # Opción 0: Repetir menú
     if mensaje_lower == "0":
         logger.info("   ✅ Intención: Repetir menú")
         return mostrar_menu()
     
+    # Respuesta por defecto (no entendido)
     logger.warning("   ⚠️ Intención no reconocida")
     return no_entendido()
 
@@ -128,6 +148,8 @@ Para consultar el estado de tu pedido, necesito tu **DNI** o **CUIT**.
 
 def iniciar_asesor(sender, mensaje):
     logger.info(f"   📞 Iniciando flujo de asesor para {sender}")
+    # Guardar el estado para saber que este usuario está en el flujo de asesor
+    sesiones[sender] = "esperando_consulta_asesor"
     return """
 📞 *Hablar con un asesor*
 
