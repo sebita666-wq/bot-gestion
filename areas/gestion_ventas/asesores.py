@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# Sistema de chat en vivo con asesores - VERSIÓN FINAL
+# SISTEMA DE CHAT EN VIVO CON ASESORES - VERSIÓN DE PRUEBA (ESCRIBE FILA FIJA)
 
 from utils import planillas
 from utils import config
@@ -67,29 +67,19 @@ def generar_codigo_consulta():
         return "C-0001"
 
 # ============================================================
-# 3. CREACIÓN DE CONSULTA (ESCRITURA EN SHEETS) - FORMATO CORREGIDO
+# 3. CREACIÓN DE CONSULTA (VERSIÓN DE PRUEBA - FILA FIJA)
 # ============================================================
 
 def crear_consulta(sender, telefono_cliente, mensaje):
-    """Crea una nueva consulta de cliente."""
-    logger.info("🚨 [crear_consulta] ¡ESTA FUNCIÓN SE ESTÁ EJECUTANDO!")
-    logger.info(f"   🔍 [crear_consulta] Iniciando para {telefono_cliente}")
-    logger.info(f"   🔍 [crear_consulta] Mensaje: {mensaje[:50]}...")
+    """VERSIÓN DE PRUEBA - ESCRIBE UNA FILA FIJA (TEST)"""
+    logger.info("🚨 [crear_consulta] VERSIÓN DE PRUEBA - ESCRIBIENDO FILA FIJA!")
     
-    # 1. Generar código
-    codigo = generar_codigo_consulta()
-    logger.info(f"   ✅ [crear_consulta] Código generado: {codigo}")
-    
-    # 2. Preparar datos (exactamente igual que en el script de prueba)
-    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # El formato DEBE ser una lista de listas, cada lista es una fila
+    # Fila de prueba exactamente igual al script de prueba (que funcionó)
     nueva_consulta = [
-        [codigo, fecha, telefono_cliente, mensaje, "Pendiente", ""]
+        ['TEST', 'Escritura OK', 'Prueba', 'Sistema', 'Funciona']
     ]
-    logger.info(f"   📝 [crear_consulta] Datos a guardar (formato): {nueva_consulta}")
+    logger.info(f"   📝 [crear_consulta] Datos de prueba: {nueva_consulta}")
     
-    # 3. Intentar escribir en la planilla (usando el mismo método que el script)
     sheet_id = config.SPREADSHEETS["CONSULTAS"]
     logger.info(f"   📤 [crear_consulta] Escribiendo en CONSULTAS (ID: {sheet_id})...")
     
@@ -99,8 +89,9 @@ def crear_consulta(sender, telefono_cliente, mensaje):
         logger.info(f"   📥 [crear_consulta] Resultado de escritura: {resultado}")
         
         if resultado:
-            logger.info("   ✅ [crear_consulta] Consulta guardada exitosamente")
-            return {"codigo": codigo, "estado": "Pendiente"}
+            logger.info("   ✅ [crear_consulta] Fila de prueba guardada exitosamente")
+            # Devolvemos un código ficticio
+            return {"codigo": "TEST-001", "estado": "Pendiente"}
         else:
             logger.error("   ❌ [crear_consulta] planillas.escribir_datos devolvió False")
             return None
