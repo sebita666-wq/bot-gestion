@@ -1,25 +1,11 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON LOGGING MEJORADO
+# Orquestador principal del sistema de gestión (versión corregida)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
 from areas.gestion_ventas.clientes import buscar_por_dni, crear_cliente
 from utils import config
 import os
-import sys
-import logging
-
-# === CONFIGURACIÓN DE LOGGING ===
-# Configurar logging para que escriba en stdout y stderr
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.StreamHandler(sys.stderr)
-    ]
-)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -30,55 +16,54 @@ def whatsapp():
     mensaje = request.values.get('Body', '').strip()
     sender = request.values.get('From', '')
     
-    logger.info(f"📩 NUEVO MENSAJE RECIBIDO")
-    logger.info(f"   📱 Remitente: {sender}")
-    logger.info(f"   💬 Mensaje: '{mensaje}'")
+    print(f"📩 Mensaje de {sender}: {mensaje}")
     
-    try:
-        respuesta = procesar_mensaje(mensaje, sender)
-        logger.info(f"🤖 Respuesta enviada: {respuesta[:100]}..." if len(respuesta) > 100 else f"🤖 Respuesta enviada: {respuesta}")
-        from twilio.twiml.messaging_response import MessagingResponse
-        resp = MessagingResponse()
-        resp.message().body(respuesta)
-        return str(resp)
-    except Exception as e:
-        logger.error(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return "Error interno", 500
+    # Detectar intención y llamar al módulo correspondiente
+    respuesta = procesar_mensaje(mensaje, sender)
+    
+    # Devolver la respuesta (en formato TwiML)
+    from twilio.twiml.messaging_response import MessagingResponse
+    resp = MessagingResponse()
+    resp.message().body(respuesta)
+    return str(resp)
 
 def procesar_mensaje(mensaje, sender):
-    logger.info(f"🧠 Procesando mensaje: '{mensaje}' de {sender}")
+    """
+    Procesa el mensaje y determina qué módulo debe responder.
+    """
     mensaje_lower = mensaje.lower().strip()
     
+    # Menú principal
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
-        logger.info("   ✅ Intención: Menú principal")
         return mostrar_menu()
     
+    # Opción 1: Presupuesto
     if mensaje_lower == "1" or mensaje_lower.startswith("presupuesto"):
-        logger.info("   ✅ Intención: Presupuesto")
         return iniciar_presupuesto(sender, mensaje)
     
+    # Opción 2: Consultar estado
     if mensaje_lower == "2" or "estado" in mensaje_lower:
-        logger.info("   ✅ Intención: Consultar estado")
         return consultar_estado(sender, mensaje)
     
+    # Opción 3: Hablar con asesor
     if mensaje_lower == "3" or "asesor" in mensaje_lower:
-        logger.info("   ✅ Intención: Hablar con asesor")
         return iniciar_asesor(sender, mensaje)
     
+    # Opción 4: Reclamos o sugerencias
     if mensaje_lower == "4" or "reclamo" in mensaje_lower:
-        logger.info("   ✅ Intención: Reclamos o sugerencias")
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
     
+    # Opción 0: Repetir menú
     if mensaje_lower == "0":
-        logger.info("   ✅ Intención: Repetir menú")
         return mostrar_menu()
     
-    logger.warning("   ⚠️ Intención no reconocida")
+    # Respuesta por defecto (no entendido)
     return no_entendido()
 
 def mostrar_menu():
+    """
+    Muestra el menú principal del bot de gestión.
+    """
     return """
 👋 *Menú principal*
 
@@ -88,7 +73,7 @@ def mostrar_menu():
 4️⃣ Reclamos o sugerencias
 0️⃣ Repetir menú
 
-📝 *Ejemplos:* 
+📝 *Ejemplos:*
 • 'Mesa de roble'
 • 'Silla rústica'
 • 'Bajo mesada a medida'
@@ -97,6 +82,9 @@ def mostrar_menu():
 """
 
 def no_entendido():
+    """
+    Respuesta cuando el bot no entiende el mensaje.
+    """
     return """
 🤔 *No entendí lo que escribiste.*
 
@@ -111,7 +99,9 @@ def no_entendido():
 """
 
 def iniciar_presupuesto(sender, mensaje):
-    logger.info(f"   🔧 Iniciando presupuesto para {sender}")
+    """
+    Inicia el flujo de presupuesto para muebles.
+    """
     return """
 🪑 *Vamos a tomar los datos de tu presupuesto.*
 
@@ -122,7 +112,9 @@ Respondé con el nombre del producto.
 """
 
 def consultar_estado(sender, mensaje):
-    logger.info(f"   🔍 Consultando estado para {sender}")
+    """
+    Consulta el estado de un presupuesto o pedido.
+    """
     return """
 🔍 *Consultar estado de pedido*
 
@@ -132,7 +124,9 @@ Para consultar el estado de tu pedido, necesito tu **DNI** o **CUIT**.
 """
 
 def iniciar_asesor(sender, mensaje):
-    logger.info(f"   📞 Iniciando flujo de asesor para {sender}")
+    """
+    Inicia el flujo para hablar con un asesor.
+    """
     return """
 📞 *Hablar con un asesor*
 
@@ -144,7 +138,6 @@ Decime tu consulta y un asesor te va a responder por este mismo chat.
 # Punto de entrada de la aplicación
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    logger.info("🚀 Bot de gestión iniciado...")
-    logger.info(f"📡 Escuchando en el puerto {port}")
-    logger.info("✅ Logs detallados activados")
-    app.run(host='0.0.0.0', port=port, debug=False)  # debug=False para producción
+    print("🚀 Bot de gestión iniciado...")
+    print(f"📡 Escuchando en el puerto {port}")
+    app.run(host='0.0.0.0', port=port, debug=True)
