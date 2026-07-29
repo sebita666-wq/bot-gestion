@@ -9,15 +9,10 @@ import os
 import sys
 import logging
 
-# === CONFIGURACIÓN DE LOGGING ===
-# Configurar logging para que escriba en stdout y stderr
+# === CONFIGURACIÓN DE LOGGING (corregida, sin duplicados) ===
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.StreamHandler(sys.stderr)
-    ]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
