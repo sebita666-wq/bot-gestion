@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON CORRECCIÓN DE ESTADO
+# Orquestador principal del sistema de gestión - CON ORDEN CORREGIDO
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -9,7 +9,6 @@ import os
 import sys
 import logging
 
-# === CONFIGURACIÓN DE LOGGING ===
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -18,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# === DICCIONARIO DE SESIONES ===
 sesiones = {}
 
 @app.route('/whatsapp', methods=['POST'])
@@ -47,30 +45,7 @@ def procesar_mensaje(mensaje, sender):
     logger.info(f"🧠 Procesando mensaje: '{mensaje}' de {sender}")
     mensaje_lower = mensaje.lower().strip()
     
-    # Verificar estado de sesión
-    estado_actual = sesiones.get(sender)
-    
-    # Si el usuario está en el flujo de asesor
-    if estado_actual == "esperando_consulta_asesor":
-        logger.info(f"   📞 Procesando consulta de asesor de {sender}")
-        logger.info(f"   📞 ANTES de llamar a asesores.procesar_consulta()")
-        
-        respuesta = asesores.procesar_consulta(sender, mensaje)
-        
-        logger.info(f"   📞 DESPUÉS de llamar a asesores.procesar_consulta()")
-        logger.info(f"   📞 Respuesta recibida: {respuesta[:50]}...")
-        
-        # SOLO limpiar el estado si la consulta se procesó correctamente
-        if "✅ *Consulta enviada*" in respuesta:
-            sesiones[sender] = None
-            logger.info(f"   📞 Consulta exitosa. Estado limpiado.")
-        else:
-            # Mantener estado para reintentar
-            logger.info(f"   📞 La consulta falló. Manteniendo estado 'esperando_consulta_asesor' para {sender}")
-        
-        return respuesta
-    
-    # === MENÚ PRINCIPAL ===
+    # === VERIFICAR COMANDOS PRINCIPALES PRIMERO ===
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
         logger.info("   ✅ Intención: Menú principal")
         sesiones[sender] = None
@@ -78,10 +53,12 @@ def procesar_mensaje(mensaje, sender):
     
     if mensaje_lower == "1" or mensaje_lower.startswith("presupuesto"):
         logger.info("   ✅ Intención: Presupuesto")
+        sesiones[sender] = None
         return iniciar_presupuesto(sender, mensaje)
     
     if mensaje_lower == "2" or "estado" in mensaje_lower:
         logger.info("   ✅ Intención: Consultar estado")
+        sesiones[sender] = None
         return consultar_estado(sender, mensaje)
     
     if mensaje_lower == "3" or "asesor" in mensaje_lower:
@@ -90,11 +67,28 @@ def procesar_mensaje(mensaje, sender):
     
     if mensaje_lower == "4" or "reclamo" in mensaje_lower:
         logger.info("   ✅ Intención: Reclamos o sugerencias")
+        sesiones[sender] = None
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
     
     if mensaje_lower == "0":
         logger.info("   ✅ Intención: Repetir menú")
+        sesiones[sender] = None
         return mostrar_menu()
+    
+    # === VERIFICAR ESTADO DE SESIÓN ===
+    estado_actual = sesiones.get(sender)
+    
+    if estado_actual == "esperando_consulta_asesor":
+        logger.info(f"   📞 Procesando consulta de asesor de {sender}")
+        respuesta = asesores.procesar_consulta(sender, mensaje)
+        
+        if "✅ *Consulta enviada*" in respuesta:
+            sesiones[sender] = None
+            logger.info(f"   📞 Consulta exitosa. Estado limpiado.")
+        else:
+            logger.info(f"   📞 La consulta falló. Manteniendo estado 'esperando_consulta_asesor' para {sender}")
+        
+        return respuesta
     
     logger.warning("   ⚠️ Intención no reconocida")
     return no_entendido()
