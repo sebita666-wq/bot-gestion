@@ -1,19 +1,44 @@
 # areas/gestion_ventas/asesores.py
-# Sistema de chat en vivo con asesores
+# Sistema de chat en vivo con asesores (LEE DESDE GOOGLE SHEETS)
 
 from utils import planillas
 from utils import config
 from datetime import datetime, timedelta
 
-# Lista de asesores (orden de prioridad)
-ASESORES = [
-    {"nombre": "Diego", "telefono": "+5493435123123"},  # Reemplazar con número real
-    {"nombre": "Carlos", "telefono": "+5493435987654"},
-    {"nombre": "Laura", "telefono": "+5493435112233"}
-]
-
 # Tiempo de espera en minutos antes de considerar que el asesor no responde
 TIMEOUT_MINUTOS = 5
+
+def cargar_asesores():
+    """
+    Carga la lista de asesores desde la planilla ASESORES en Google Sheets.
+    La planilla debe tener las columnas: Orden, Telefono, Nombre.
+    """
+    datos = planillas.leer_datos(config.SPREADSHEETS["ASESORES"], 'A:C')
+    if not datos or len(datos) < 2:
+        # Si no hay datos, usar una lista por defecto
+        return [
+            {"orden": 1, "telefono": "5493434727811", "nombre": "Sebastian"}
+        ]
+    
+    asesores = []
+    for fila in datos[1:]:  # Saltar la fila de encabezados
+        if len(fila) >= 3 and fila[1].strip():  # Si tiene teléfono
+            asesores.append({
+                "orden": int(fila[0]) if fila[0].isdigit() else 0,
+                "telefono": fila[1].strip(),
+                "nombre": fila[2].strip() if len(fila) > 2 else "Asesor"
+            })
+    
+    # Ordenar por la columna "Orden"
+    asesores.sort(key=lambda x: x["orden"])
+    return asesores
+
+def obtener_asesor_activo():
+    """Obtiene el primer asesor de la lista (orden 1)."""
+    asesores = cargar_asesores()
+    if asesores:
+        return asesores[0]  # El de orden 1
+    return None
 
 def generar_codigo_consulta():
     """Genera el próximo código de consulta (C-XXXX)"""
@@ -52,8 +77,17 @@ def crear_consulta(sender, telefono_cliente, mensaje):
     return None
 
 def notificar_asesor(codigo, telefono_cliente, mensaje):
-    """Notifica al asesor (el primero de la lista) sobre una nueva consulta."""
-    asesor = ASESORES[0]
+    """Notifica al primer asesor (orden 1) sobre una nueva consulta."""
+    asesor = obtener_asesor_activo()
+    if not asesor:
+        print("❌ No hay asesores disponibles.")
+        return False
+    
+    # Asegurar que el número tenga el formato correcto para WhatsApp
+    telefono_asesor = asesor["telefono"]
+    if not telefono_asesor.startswith("+"):
+        telefono_asesor = "+" + telefono_asesor
+    
     texto = f"""
 📞 *Nueva consulta de cliente*
 
@@ -64,7 +98,7 @@ Consulta: "{mensaje}"
 👉 Respondé copiando esta línea y agregando tu mensaje:
 Respuesta {codigo}:
 """
-    print(f"📱 Enviando a {asesor['telefono']}:")
+    print(f"📱 Enviando a {asesor['nombre']} ({telefono_asesor}):")
     print(texto)
     print("-" * 50)
     return True
