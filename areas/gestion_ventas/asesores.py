@@ -1,10 +1,12 @@
 # areas/gestion_ventas/asesores.py
-# SISTEMA DE CHAT EN VIVO CON ASESORES - VERSIÓN SIMPLIFICADA
+# SISTEMA DE CHAT EN VIVO CON ASESORES - CON ENVÍO REAL POR TWILIO
 
 from utils import config
 from datetime import datetime, timedelta
 import logging
+import os
 from googleapiclient.discovery import build
+from twilio.rest import Client
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -126,10 +128,11 @@ def crear_consulta(sender, telefono_cliente, mensaje):
         return None
 
 # ============================================================
-# 4. NOTIFICACIÓN AL ASESOR
+# 4. NOTIFICACIÓN AL ASESOR (CON ENVÍO REAL POR TWILIO)
 # ============================================================
 
 def notificar_asesor(codigo, telefono_cliente, mensaje):
+    """Notifica al asesor enviando un mensaje real por WhatsApp usando Twilio."""
     asesor = obtener_asesor_activo()
     if not asesor:
         logger.error("❌ No hay asesores disponibles.")
@@ -151,7 +154,29 @@ Respuesta {codigo}:
 """
     logger.info(f"📱 Enviando a {asesor['nombre']} ({telefono_asesor}):")
     logger.info(texto)
-    return True
+    
+    try:
+        # Obtener credenciales de Twilio desde variables de entorno
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+        
+        if not account_sid or not auth_token or not from_number:
+            logger.error("❌ Faltan variables de entorno de Twilio (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER)")
+            return False
+        
+        # Enviar mensaje real por Twilio
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            from_=f'whatsapp:{from_number}',
+            body=texto,
+            to=f'whatsapp:{telefono_asesor}'
+        )
+        logger.info(f"✅ Mensaje enviado a {telefono_asesor}. SID: {message.sid}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error al enviar mensaje: {e}")
+        return False
 
 # ============================================================
 # 5. PROCESADOR PRINCIPAL DE CONSULTA
