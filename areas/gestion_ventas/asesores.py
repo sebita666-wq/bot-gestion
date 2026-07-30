@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# SISTEMA DE CHAT EN VIVO CON ASESORES - CON ENVÍO REAL POR TWILIO
+# SISTEMA DE CHAT EN VIVO CON ASESORES - COMPLETO
 
 from utils import config
 from datetime import datetime, timedelta
@@ -156,16 +156,14 @@ Respuesta {codigo}:
     logger.info(texto)
     
     try:
-        # Obtener credenciales de Twilio desde variables de entorno
         account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
         auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
         from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
         
         if not account_sid or not auth_token or not from_number:
-            logger.error("❌ Faltan variables de entorno de Twilio (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER)")
+            logger.error("❌ Faltan variables de entorno de Twilio")
             return False
         
-        # Enviar mensaje real por Twilio
         client = Client(account_sid, auth_token)
         message = client.messages.create(
             from_=f'whatsapp:{from_number}',
@@ -232,6 +230,34 @@ def actualizar_consulta(codigo, respuesta):
     """Actualiza una consulta con la respuesta del asesor."""
     logger.info(f"✅ Consulta {codigo} respondida: {respuesta}")
     return True
+
+def obtener_telefono_cliente(codigo):
+    """Obtiene el teléfono del cliente a partir del código de consulta."""
+    logger.info(f"🔍 [obtener_telefono_cliente] Buscando teléfono para código {codigo}...")
+    try:
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+            range='A:C'
+        ).execute()
+        datos = result.get('values', [])
+        
+        if not datos or len(datos) < 2:
+            logger.warning("⚠️ [obtener_telefono_cliente] No hay datos en CONSULTAS")
+            return None
+        
+        for fila in datos[1:]:
+            if len(fila) >= 3 and fila[0].strip() == codigo.strip():
+                telefono = fila[2].strip()
+                logger.info(f"✅ [obtener_telefono_cliente] Teléfono encontrado: {telefono}")
+                return telefono
+        
+        logger.warning(f"⚠️ [obtener_telefono_cliente] No se encontró el código {codigo}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ [obtener_telefono_cliente] Error: {e}")
+        return None
 
 def verificar_timeout():
     """Verifica consultas sin respuesta."""
