@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# SISTEMA DE CHAT EN VIVO CON ASESORES - COMPLETO
+# SISTEMA DE CHAT EN VIVO CON ASESORES - COMPLETO CON TIMEOUTS
 
 from utils import config
 from datetime import datetime, timedelta
@@ -12,6 +12,11 @@ from twilio.rest import Client
 logger = logging.getLogger(__name__)
 
 TIMEOUT_MINUTOS = 5
+
+# Configuración de timeouts (en minutos)
+TIMEOUT_RECORDATORIO = 3      # Recordatorio al asesor
+TIMEOUT_REASIGNAR = 5          # Reasignar a otro asesor
+TIMEOUT_FINAL = 8              # Mensaje final al cliente
 
 # ============================================================
 # 1. FUNCIONES DE ASESORES (desde Google Sheets)
@@ -284,3 +289,234 @@ def verificar_timeout():
                     pass
     except Exception as e:
         logger.error(f"❌ [verificar_timeout] Error: {e}")
+
+# ============================================================
+# 7. NUEVAS FUNCIONES PARA TIMEOUTS AVANZADOS
+# ============================================================
+
+def enviar_whatsapp(destino, mensaje):
+    """
+    Envía un mensaje de WhatsApp REAL usando Twilio.
+    """
+    try:
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+        
+        if not account_sid or not auth_token or not from_number:
+            logger.error("❌ Faltan variables de entorno de Twilio")
+            return False
+        
+        # Asegurar formato del número
+        if not destino.startswith('+'):
+            destino = '+' + destino
+        if not destino.startswith('whatsapp:'):
+            destino = f'whatsapp:{destino}'
+        
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            from_=f'whatsapp:{from_number}',
+            body=mensaje,
+            to=destino
+        )
+        logger.info(f"✅ Mensaje enviado a {destino}. SID: {message.sid}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error al enviar mensaje: {e}")
+        return False
+
+def enviar_recordatorio_asesor(codigo, consulta, telefono_cliente, asesor):
+    """
+    Envía un recordatorio al asesor después de 3 minutos.
+    """
+    mensaje = f"""
+⏰ *Recordatorio: Consulta pendiente*
+
+Código: {codigo}
+Cliente: {telefono_cliente}
+Consulta: "{consulta}"
+Tiempo transcurrido: {TIMEOUT_RECORDATORIO} minutos
+
+👉 ¿Puedes atender esta consulta?
+Responde con: Respuesta {codigo}: [tu mensaje]
+"""
+    logger.info(f"⏰ Enviando recordatorio al asesor {asesor['nombre']} para consulta {codigo}")
+    return enviar_whatsapp(asesor["telefono"], mensaje)
+
+def reasignar_asesor(codigo, consulta, telefono_cliente):
+    """
+    Reasigna una consulta al siguiente asesor disponible.
+    """
+    logger.info(f"🔄 [reasignar_asesor] Reasignando consulta {codigo}")
+    
+    asesores = cargar_asesores()
+    if len(asesores) <= 1:
+        logger.info(f"⚠️ Solo hay un asesor, no se puede reasignar")
+        return None
+    
+    # Buscar el siguiente asesor (rotar)
+    asesor_nuevo = asesores[1] if len(asesores) > 1 else asesores[0]
+    
+    # Actualizar el estado en CONSULTAS a "Reasignado"
+    try:
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        # Buscar la fila del código
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+            range='A:F'
+        ).execute()
+        datos = result.get('values', [])
+        
+        for i, fila in enumerate(datos):
+            if len(fila) > 0 and fila[0] == codigo:
+                # Actualizar estado a "Reasignado"
+                fila_excel = i + 1
+                rango_celda = f'E{fila_excel}'
+                
+                body = {'values': [["Reasignado"]]}
+                service.spreadsheets().values().update(
+                    spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+                    range=rango_celda,
+                    valueInputOption='USER_ENTERED',
+                    body=body
+                ).execute()
+                
+                logger.info(f"✅ Consulta {codigo} reasignada a {asesor_nuevo['nombre']}")
+                
+                # Notificar al nuevo asesor
+                texto_notificacion = f"""
+🔄 *Consulta reasignada*
+
+Código: {codigo}
+Cliente: {telefono_cliente}
+Consulta: "{consulta}"
+
+El asesor anterior no respondió en {TIMEOUT_REASIGNAR} minutos.
+👉 Respondé con: Respuesta {codigo}: [tu mensaje]
+"""
+                enviar_whatsapp(asesor_nuevo["telefono"], texto_notificacion)
+                
+                return asesor_nuevo
+                
+    except Exception as e:
+        logger.error(f"❌ Error al reasignar: {e}")
+        return None
+
+def responder_cliente_timeout(codigo, telefono_cliente):
+    """
+    Envía un mensaje al cliente cuando pasa el timeout de 5 minutos (sin reasignación).
+    """
+    mensaje = f"""
+😔 Disculpa la demora, todos nuestros asesores se encuentran ocupados.
+
+Tu consulta *{codigo}* aún no ha sido respondida pero está en nuestra lista de espera.
+
+📌 ¿Preferís esperar o dejar un mensaje para que te contactemos por mail?
+1️⃣ Esperar
+2️⃣ Dejar mensaje (te respondemos por mail)
+"""
+    logger.info(f"⏰ Enviando mensaje de espera al cliente {telefono_cliente} para consulta {codigo}")
+    return enviar_whatsapp(telefono_cliente, mensaje)
+
+def responder_cliente_timeout_final(codigo, telefono_cliente):
+    """
+    Envía un mensaje final al cliente cuando pasa el timeout de 8 minutos.
+    """
+    mensaje = f"""
+😔 Te pedimos disculpas por no poder atender tu consulta. Todos nuestros asesores se encuentran ocupados.
+
+Tu consulta *{codigo}* no pudo ser atendida en este momento.
+
+📌 Alternativas:
+• Visita nuestra web: www.carpinteriaradi.com.ar
+• Envíanos un mail a: carpinteriaradi@gmail.com
+• Volvé a intentar más tarde
+
+¡Gracias por contactarnos!
+"""
+    logger.info(f"⏰ Enviando mensaje final al cliente {telefono_cliente} para consulta {codigo}")
+    return enviar_whatsapp(telefono_cliente, mensaje)
+
+def verificar_timeout_avanzado():
+    """
+    Verifica consultas sin respuesta y toma acción según el tiempo:
+    - A los 3 min: Envía recordatorio al asesor
+    - A los 5 min: Reasigna a otro asesor (si existe) o avisa al cliente
+    - A los 8 min: Mensaje final al cliente
+    """
+    logger.info("⏰ [verificar_timeout_avanzado] Verificando consultas pendientes...")
+    
+    try:
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+            range='A:F'
+        ).execute()
+        datos = result.get('values', [])
+        
+        if not datos or len(datos) < 2:
+            logger.info("⏰ No hay consultas pendientes")
+            return
+        
+        ahora = datetime.now()
+        asesores = cargar_asesores()
+        asesor_actual = asesores[0] if asesores else None
+        
+        for fila in datos[1:]:
+            # Verificar que tenga al menos 5 columnas y esté Pendiente
+            if len(fila) >= 5 and fila[4] == "Pendiente":
+                try:
+                    # Parsear fecha
+                    fecha_consulta = datetime.strptime(fila[1], "%Y-%m-%d %H:%M:%S")
+                    tiempo_transcurrido = (ahora - fecha_consulta).total_seconds() / 60  # en minutos
+                    
+                    codigo = fila[0]
+                    telefono_cliente = fila[2] if len(fila) > 2 else ""
+                    consulta = fila[3] if len(fila) > 3 else ""
+                    
+                    # --- 3 minutos: Recordatorio al asesor ---
+                    if tiempo_transcurrido >= TIMEOUT_RECORDATORIO and tiempo_transcurrido < TIMEOUT_REASIGNAR:
+                        logger.info(f"⏰ [3 min] Recordatorio para consulta {codigo} ({tiempo_transcurrido:.1f} min)")
+                        if asesor_actual:
+                            enviar_recordatorio_asesor(codigo, consulta, telefono_cliente, asesor_actual)
+                    
+                    # --- 5 minutos: Reasignar o avisar al cliente ---
+                    elif tiempo_transcurrido >= TIMEOUT_REASIGNAR and tiempo_transcurrido < TIMEOUT_FINAL:
+                        logger.info(f"⏰ [5 min] Procesando consulta {codigo} ({tiempo_transcurrido:.1f} min)")
+                        
+                        if len(asesores) > 1:
+                            # Reasignar a otro asesor
+                            reasignar_asesor(codigo, consulta, telefono_cliente)
+                        else:
+                            # Solo hay un asesor, avisar al cliente
+                            responder_cliente_timeout(codigo, telefono_cliente)
+                    
+                    # --- 8 minutos: Mensaje final al cliente ---
+                    elif tiempo_transcurrido >= TIMEOUT_FINAL:
+                        logger.info(f"⏰ [8 min] Timeout final para consulta {codigo} ({tiempo_transcurrido:.1f} min)")
+                        
+                        # Actualizar estado a "Abandonada"
+                        fila_excel = datos.index(fila) + 1
+                        rango_celda = f'E{fila_excel}'
+                        body = {'values': [["Abandonada"]]}
+                        service.spreadsheets().values().update(
+                            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+                            range=rango_celda,
+                            valueInputOption='USER_ENTERED',
+                            body=body
+                        ).execute()
+                        
+                        # Enviar mensaje final al cliente
+                        responder_cliente_timeout_final(codigo, telefono_cliente)
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error procesando fila {fila}: {e}")
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"❌ [verificar_timeout_avanzado] Error general: {e}")
+        import traceback
+        traceback.print_exc()

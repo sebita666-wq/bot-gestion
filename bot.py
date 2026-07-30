@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON PROCESAMIENTO DE RESPUESTA DE ASESOR
+# Orquestador principal del sistema de gestión - CON PROCESAMIENTO DE RESPUESTA DE ASESOR Y TIMEOUTS
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -8,6 +8,8 @@ from utils import config
 import os
 import sys
 import logging
+import threading
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +20,34 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 sesiones = {}
+
+# ============================================================
+# SCHEDULER PARA TIMEOUTS
+# ============================================================
+
+def scheduler_timeouts():
+    """
+    Ejecuta verificar_timeout_avanzado cada 60 segundos en un hilo separado.
+    """
+    logger.info("⏰ Iniciando scheduler de timeouts (cada 60 segundos)")
+    while True:
+        try:
+            from areas.gestion_ventas.asesores import verificar_timeout_avanzado
+            verificar_timeout_avanzado()
+        except Exception as e:
+            logger.error(f"❌ Error en scheduler de timeouts: {e}")
+            import traceback
+            traceback.print_exc()
+        time.sleep(60)  # Esperar 1 minuto
+
+# Iniciar el scheduler en un hilo daemon
+scheduler_thread = threading.Thread(target=scheduler_timeouts, daemon=True)
+scheduler_thread.start()
+logger.info("✅ Scheduler de timeouts iniciado correctamente")
+
+# ============================================================
+# RUTA DE WHATSAPP (WEBHOOK)
+# ============================================================
 
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp():
@@ -50,12 +80,20 @@ def procesar_mensaje(mensaje, sender):
         logger.info("   📞 Procesando respuesta de asesor")
         respuesta_asesor = asesores.procesar_respuesta_asesor(mensaje)
         if respuesta_asesor:
-            # Enviar la respuesta al cliente
             codigo = respuesta_asesor["codigo"]
             respuesta_texto = respuesta_asesor["respuesta"]
             # Buscar el teléfono del cliente en CONSULTAS
             cliente_telefono = asesores.obtener_telefono_cliente(codigo)
+            
             if cliente_telefono:
+                # Verificar que el cliente no sea el mismo que el asesor
+                sender_clean = sender.replace('whatsapp:', '') if sender.startswith('whatsapp:') else sender
+                cliente_clean = cliente_telefono.replace('whatsapp:', '') if cliente_telefono.startswith('whatsapp:') else cliente_telefono
+                
+                if sender_clean == cliente_clean:
+                    logger.warning(f"⚠️ El asesor está respondiendo a su propia consulta. No se envía mensaje.")
+                    return "✅ Mensaje registrado. (Nota: No te enviamos el mensaje a ti mismo como cliente)"
+                
                 # Enviar mensaje al cliente (usando Twilio)
                 from twilio.rest import Client
                 account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
@@ -70,6 +108,33 @@ def procesar_mensaje(mensaje, sender):
                         to=f'whatsapp:{cliente_telefono}'
                     )
                     logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
+                    
+                    # Actualizar estado de la consulta a "Respondida"
+                    try:
+                        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+                        # Buscar la fila del código
+                        result = service.spreadsheets().values().get(
+                            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+                            range='A:F'
+                        ).execute()
+                        datos = result.get('values', [])
+                        
+                        for i, fila in enumerate(datos):
+                            if len(fila) > 0 and fila[0] == codigo:
+                                fila_excel = i + 1
+                                rango_celda = f'E{fila_excel}'
+                                body = {'values': [["Respondida"]]}
+                                service.spreadsheets().values().update(
+                                    spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+                                    range=rango_celda,
+                                    valueInputOption='USER_ENTERED',
+                                    body=body
+                                ).execute()
+                                logger.info(f"✅ Consulta {codigo} marcada como Respondida")
+                                break
+                    except Exception as e:
+                        logger.error(f"❌ Error al actualizar estado: {e}")
+                    
                     return "✅ Tu respuesta fue enviada al cliente."
                 else:
                     logger.error("❌ Faltan variables de Twilio")
