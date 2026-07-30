@@ -1,12 +1,12 @@
 # areas/gestion_ventas/asesores.py
-# SISTEMA DE CHAT EN VIVO CON ASESORES - VERSIÓN DE PRUEBA (ESCRIBE FILA FIJA)
+# SISTEMA DE CHAT EN VIVO CON ASESORES - USANDO CREDENTIALS DESDE CONFIG
 
-from utils import planillas
 from utils import config
 from datetime import datetime, timedelta
 import logging
+from googleapiclient.discovery import build
 
-# Configurar logger para este módulo
+# Configurar logger
 logger = logging.getLogger(__name__)
 
 TIMEOUT_MINUTOS = 5
@@ -18,22 +18,34 @@ TIMEOUT_MINUTOS = 5
 def cargar_asesores():
     """Carga la lista de asesores desde la planilla ASESORES."""
     logger.info("📋 [cargar_asesores] Leyendo ASESORES desde Google Sheets...")
-    datos = planillas.leer_datos(config.SPREADSHEETS["ASESORES"], 'A:C')
-    if not datos or len(datos) < 2:
-        logger.warning("⚠️ [cargar_asesores] No hay datos, usando lista por defecto")
+    try:
+        # Usamos las credenciales desde config
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["ASESORES"],
+            range='A:C'
+        ).execute()
+        datos = result.get('values', [])
+        
+        if not datos or len(datos) < 2:
+            logger.warning("⚠️ [cargar_asesores] No hay datos, usando lista por defecto")
+            return [{"orden": 1, "telefono": "5493434727811", "nombre": "Sebastian"}]
+        
+        asesores = []
+        for fila in datos[1:]:
+            if len(fila) >= 3 and fila[1].strip():
+                asesores.append({
+                    "orden": int(fila[0]) if fila[0].isdigit() else 0,
+                    "telefono": fila[1].strip(),
+                    "nombre": fila[2].strip() if len(fila) > 2 else "Asesor"
+                })
+        asesores.sort(key=lambda x: x["orden"])
+        logger.info(f"✅ [cargar_asesores] {len(asesores)} asesores cargados.")
+        return asesores
+    except Exception as e:
+        logger.error(f"❌ [cargar_asesores] Error: {e}")
         return [{"orden": 1, "telefono": "5493434727811", "nombre": "Sebastian"}]
-    
-    asesores = []
-    for fila in datos[1:]:
-        if len(fila) >= 3 and fila[1].strip():
-            asesores.append({
-                "orden": int(fila[0]) if fila[0].isdigit() else 0,
-                "telefono": fila[1].strip(),
-                "nombre": fila[2].strip() if len(fila) > 2 else "Asesor"
-            })
-    asesores.sort(key=lambda x: x["orden"])
-    logger.info(f"✅ [cargar_asesores] {len(asesores)} asesores cargados.")
-    return asesores
 
 def obtener_asesor_activo():
     asesores = cargar_asesores()
@@ -47,7 +59,14 @@ def generar_codigo_consulta():
     """Genera el próximo código de consulta (C-XXXX)"""
     logger.info("🔢 [generar_codigo_consulta] Generando código...")
     try:
-        datos = planillas.leer_datos(config.SPREADSHEETS["CONSULTAS"], 'A:A')
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+            range='A:A'
+        ).execute()
+        datos = result.get('values', [])
+        
         if not datos or len(datos) < 2:
             logger.info("📝 [generar_codigo_consulta] Planilla vacía, código inicial C-0001")
             return "C-0001"
@@ -67,34 +86,40 @@ def generar_codigo_consulta():
         return "C-0001"
 
 # ============================================================
-# 3. CREACIÓN DE CONSULTA (VERSIÓN DE PRUEBA - FILA FIJA)
+# 3. CREACIÓN DE CONSULTA (API DIRECTA CON CREDENTIALS)
 # ============================================================
 
 def crear_consulta(sender, telefono_cliente, mensaje):
-    """VERSIÓN DE PRUEBA - ESCRIBE UNA FILA FIJA (TEST)"""
-    logger.info("🚨 [crear_consulta] VERSIÓN DE PRUEBA - ESCRIBIENDO FILA FIJA!")
+    """Crea una nueva consulta de cliente usando la API directa."""
+    logger.info("🚨 [crear_consulta] VERSIÓN DIRECTA API CON CREDENTIALS!")
     
-    # Fila de prueba exactamente igual al script de prueba (que funcionó)
+    codigo = generar_codigo_consulta()
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     nueva_consulta = [
-        ['TEST', 'Escritura OK', 'Prueba', 'Sistema', 'Funciona']
+        [codigo, fecha, telefono_cliente, mensaje, "Pendiente", ""]
     ]
-    logger.info(f"   📝 [crear_consulta] Datos de prueba: {nueva_consulta}")
+    logger.info(f"   📝 [crear_consulta] Datos a guardar: {nueva_consulta}")
     
     sheet_id = config.SPREADSHEETS["CONSULTAS"]
     logger.info(f"   📤 [crear_consulta] Escribiendo en CONSULTAS (ID: {sheet_id})...")
     
     try:
-        # Llamada idéntica al script de prueba
-        resultado = planillas.escribir_datos(sheet_id, 'A:F', nueva_consulta)
-        logger.info(f"   📥 [crear_consulta] Resultado de escritura: {resultado}")
+        # Usamos las credenciales desde config
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         
-        if resultado:
-            logger.info("   ✅ [crear_consulta] Fila de prueba guardada exitosamente")
-            # Devolvemos un código ficticio
-            return {"codigo": "TEST-001", "estado": "Pendiente"}
-        else:
-            logger.error("   ❌ [crear_consulta] planillas.escribir_datos devolvió False")
-            return None
+        body = {'values': nueva_consulta}
+        result = service.spreadsheets().values().append(
+            spreadsheetId=sheet_id,
+            range='A:F',
+            valueInputOption='USER_ENTERED',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+        
+        logger.info(f"   📥 [crear_consulta] Resultado de API: {result}")
+        logger.info("   ✅ [crear_consulta] Consulta guardada exitosamente")
+        return {"codigo": codigo, "estado": "Pendiente"}
+        
     except Exception as e:
         logger.error(f"   ❌ [crear_consulta] EXCEPCIÓN: {e}")
         import traceback
@@ -186,16 +211,26 @@ def actualizar_consulta(codigo, respuesta):
 
 def verificar_timeout():
     """Verifica consultas sin respuesta."""
-    datos = planillas.leer_datos(config.SPREADSHEETS["CONSULTAS"], 'A:F')
-    if not datos or len(datos) < 2:
-        return
-    
-    ahora = datetime.now()
-    for fila in datos[1:]:
-        if len(fila) >= 4 and fila[4] == "Pendiente":
-            try:
-                fecha_consulta = datetime.strptime(fila[1], "%Y-%m-%d %H:%M:%S")
-                if (ahora - fecha_consulta) > timedelta(minutes=TIMEOUT_MINUTOS):
-                    logger.info(f"⏰ Timeout: consulta {fila[0]} sin respuesta después de {TIMEOUT_MINUTOS} minutos.")
-            except:
-                pass
+    try:
+        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
+        
+        result = service.spreadsheets().values().get(
+            spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
+            range='A:F'
+        ).execute()
+        datos = result.get('values', [])
+        
+        if not datos or len(datos) < 2:
+            return
+        
+        ahora = datetime.now()
+        for fila in datos[1:]:
+            if len(fila) >= 4 and fila[4] == "Pendiente":
+                try:
+                    fecha_consulta = datetime.strptime(fila[1], "%Y-%m-%d %H:%M:%S")
+                    if (ahora - fecha_consulta) > timedelta(minutes=TIMEOUT_MINUTOS):
+                        logger.info(f"⏰ Timeout: consulta {fila[0]} sin respuesta después de {TIMEOUT_MINUTOS} minutos.")
+                except:
+                    pass
+    except Exception as e:
+        logger.error(f"❌ [verificar_timeout] Error: {e}")
