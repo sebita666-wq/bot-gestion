@@ -7,7 +7,7 @@ from areas.gestion_ventas import presupuesto
 
 # Configuración de pagos (se puede leer desde CONFIGURACIÓN en el futuro)
 DESCUENTO_EFECTIVO = 10  # 10% de descuento
-INTERES_CUOTA = 5  # 5% de interés por cuota
+INTERES_CUOTA = 0  # 0% de interés
 
 def mostrar_opciones_pago():
     """Devuelve el mensaje con las opciones de pago."""
@@ -26,7 +26,6 @@ def procesar_opcion_pago(opcion, numero_presupuesto):
     Procesa la opción de pago elegida por el cliente.
     opcion: "1", "2" o "3"
     """
-    # Obtener los datos del presupuesto
     pedido = presupuesto.obtener_presupuesto(numero_presupuesto)
     if not pedido:
         return {"error": "Presupuesto no encontrado"}
@@ -63,7 +62,7 @@ Una vez que hagas la transferencia, enviá el comprobante por este chat.
 
 def efectivo(pedido):
     """Maneja pago en efectivo con descuento."""
-    precio_original = int(pedido['precio'])
+    precio_original = int(pedido['precio']) if pedido['precio'] else 0
     descuento = int(precio_original * DESCUENTO_EFECTIVO / 100)
     precio_final = precio_original - descuento
     
@@ -89,7 +88,7 @@ Podés pasar por nuestro taller:
 
 def cuotas(pedido):
     """Maneja pago en cuotas de la casa."""
-    precio = int(pedido['precio'])
+    precio = int(pedido['precio']) if pedido['precio'] else 0
     
     mensaje = f"""
 💰 *Pago en cuotas de la casa*
@@ -97,7 +96,7 @@ def cuotas(pedido):
 ¿En cuántas cuotas querés pagar?  
 3️⃣ *3 cuotas*  
 6️⃣ *6 cuotas*  
-1️⃣2️⃣ *12 cuotas*
+12️⃣ *12 cuotas*
 """
     return {
         "tipo": "cuotas",
@@ -111,7 +110,7 @@ def procesar_cuotas(cantidad, pedido):
     Procesa la cantidad de cuotas elegida por el cliente.
     Calcula el valor de cada cuota y el plan de pagos.
     """
-    precio = int(pedido['precio'])
+    precio = int(pedido['precio']) if pedido['precio'] else 0
     interes = INTERES_CUOTA
     cantidad = int(cantidad)
     
@@ -124,7 +123,7 @@ def procesar_cuotas(cantidad, pedido):
         total_con_interes = precio
         valor_cuota = precio / cantidad
     
-    entrega_inicial = valor_cuota  # En este ejemplo, la primera cuota es igual a las demás
+    entrega_inicial = valor_cuota
     
     mensaje = f"""
 💰 *Plan de pagos ({cantidad} cuotas {'' if interes == 0 else f'con {interes}% de interés'} )*
