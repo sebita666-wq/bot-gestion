@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON ORDEN CORREGIDO
+# Orquestador principal del sistema de gestión - CON PROCESAMIENTO DE RESPUESTA DE ASESOR
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -45,7 +45,42 @@ def procesar_mensaje(mensaje, sender):
     logger.info(f"🧠 Procesando mensaje: '{mensaje}' de {sender}")
     mensaje_lower = mensaje.lower().strip()
     
-    # === VERIFICAR COMANDOS PRINCIPALES PRIMERO ===
+    # === VERIFICAR SI ES RESPUESTA DE ASESOR ===
+    if mensaje_lower.startswith("respuesta c-") or mensaje_lower.startswith("c-"):
+        logger.info("   📞 Procesando respuesta de asesor")
+        respuesta_asesor = asesores.procesar_respuesta_asesor(mensaje)
+        if respuesta_asesor:
+            # Enviar la respuesta al cliente
+            codigo = respuesta_asesor["codigo"]
+            respuesta_texto = respuesta_asesor["respuesta"]
+            # Buscar el teléfono del cliente en CONSULTAS
+            cliente_telefono = asesores.obtener_telefono_cliente(codigo)
+            if cliente_telefono:
+                # Enviar mensaje al cliente (usando Twilio)
+                from twilio.rest import Client
+                account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+                auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+                from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+                
+                if account_sid and auth_token and from_number:
+                    client = Client(account_sid, auth_token)
+                    client.messages.create(
+                        from_=f'whatsapp:{from_number}',
+                        body=f"📞 *Un asesor te responde:*\n{respuesta_texto}",
+                        to=f'whatsapp:{cliente_telefono}'
+                    )
+                    logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
+                    return "✅ Tu respuesta fue enviada al cliente."
+                else:
+                    logger.error("❌ Faltan variables de Twilio")
+                    return "⚠️ Error al enviar la respuesta."
+            else:
+                logger.error(f"❌ No se encontró cliente para código {codigo}")
+                return "⚠️ No se encontró la consulta."
+        else:
+            return no_entendido()
+    
+    # === VERIFICAR COMANDOS PRINCIPALES ===
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
         logger.info("   ✅ Intención: Menú principal")
         sesiones[sender] = None
