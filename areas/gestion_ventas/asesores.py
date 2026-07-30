@@ -1,5 +1,5 @@
 # areas/gestion_ventas/asesores.py
-# SISTEMA DE CHAT EN VIVO CON ASESORES - USANDO CREDENTIALS DESDE CONFIG
+# SISTEMA DE CHAT EN VIVO CON ASESORES - VERSIÓN SIMPLIFICADA
 
 from utils import config
 from datetime import datetime, timedelta
@@ -19,7 +19,6 @@ def cargar_asesores():
     """Carga la lista de asesores desde la planilla ASESORES."""
     logger.info("📋 [cargar_asesores] Leyendo ASESORES desde Google Sheets...")
     try:
-        # Usamos las credenciales desde config
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         
         result = service.spreadsheets().values().get(
@@ -29,12 +28,12 @@ def cargar_asesores():
         datos = result.get('values', [])
         
         if not datos or len(datos) < 2:
-            logger.warning("⚠️ [cargar_asesores] No hay datos, usando lista por defecto")
+            logger.warning("⚠️ [cargar_asesores] No hay datos, usando asesor por defecto")
             return [{"orden": 1, "telefono": "5493434727811", "nombre": "Sebastian"}]
         
         asesores = []
         for fila in datos[1:]:
-            if len(fila) >= 3 and fila[1].strip():
+            if len(fila) >= 2 and fila[1].strip():
                 asesores.append({
                     "orden": int(fila[0]) if fila[0].isdigit() else 0,
                     "telefono": fila[1].strip(),
@@ -48,6 +47,7 @@ def cargar_asesores():
         return [{"orden": 1, "telefono": "5493434727811", "nombre": "Sebastian"}]
 
 def obtener_asesor_activo():
+    """Obtiene el primer asesor de la lista."""
     asesores = cargar_asesores()
     return asesores[0] if asesores else None
 
@@ -86,12 +86,12 @@ def generar_codigo_consulta():
         return "C-0001"
 
 # ============================================================
-# 3. CREACIÓN DE CONSULTA (API DIRECTA CON CREDENTIALS)
+# 3. CREACIÓN DE CONSULTA (API DIRECTA)
 # ============================================================
 
 def crear_consulta(sender, telefono_cliente, mensaje):
-    """Crea una nueva consulta de cliente usando la API directa."""
-    logger.info("🚨 [crear_consulta] VERSIÓN DIRECTA API CON CREDENTIALS!")
+    """Crea una nueva consulta de cliente."""
+    logger.info("🚨 [crear_consulta] Creando consulta...")
     
     codigo = generar_codigo_consulta()
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -104,7 +104,6 @@ def crear_consulta(sender, telefono_cliente, mensaje):
     logger.info(f"   📤 [crear_consulta] Escribiendo en CONSULTAS (ID: {sheet_id})...")
     
     try:
-        # Usamos las credenciales desde config
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         
         body = {'values': nueva_consulta}
@@ -116,7 +115,7 @@ def crear_consulta(sender, telefono_cliente, mensaje):
             body=body
         ).execute()
         
-        logger.info(f"   📥 [crear_consulta] Resultado de API: {result}")
+        logger.info(f"   📥 [crear_consulta] Resultado: {result}")
         logger.info("   ✅ [crear_consulta] Consulta guardada exitosamente")
         return {"codigo": codigo, "estado": "Pendiente"}
         
@@ -159,8 +158,8 @@ Respuesta {codigo}:
 # ============================================================
 
 def procesar_consulta(sender, mensaje):
-    """Procesa la consulta de un cliente que está en el flujo de asesor."""
-    logger.info("🚨 [procesar_consulta] ¡ESTA FUNCIÓN SE ESTÁ EJECUTANDO!")
+    """Procesa la consulta de un cliente."""
+    logger.info("🚨 [procesar_consulta] Procesando consulta...")
     logger.info(f"   📞 [procesar_consulta] Iniciando para {sender}")
     logger.info(f"   📞 [procesar_consulta] Mensaje: {mensaje[:50]}...")
     
