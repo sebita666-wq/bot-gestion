@@ -237,7 +237,10 @@ def actualizar_consulta(codigo, respuesta):
     return True
 
 def obtener_telefono_cliente(codigo):
-    """Obtiene el teléfono del cliente a partir del código de consulta."""
+    """
+    Obtiene el teléfono del cliente a partir del código de consulta.
+    CORREGIDO: Elimina el prefijo 'whatsapp:' para evitar duplicación.
+    """
     logger.info(f"🔍 [obtener_telefono_cliente] Buscando teléfono para código {codigo}...")
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
@@ -255,6 +258,8 @@ def obtener_telefono_cliente(codigo):
         for fila in datos[1:]:
             if len(fila) >= 3 and fila[0].strip() == codigo.strip():
                 telefono = fila[2].strip()
+                # CORREGIDO: Eliminar el prefijo "whatsapp:" si existe
+                telefono = telefono.replace('whatsapp:', '')
                 logger.info(f"✅ [obtener_telefono_cliente] Teléfono encontrado: {telefono}")
                 return telefono
         

@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - VERSIÓN ESTABLE (SIN SCHEDULER)
+# Orquestador principal del sistema de gestión - VERSIÓN CORREGIDA
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -56,58 +56,9 @@ def procesar_mensaje(mensaje, sender):
     mensaje_lower = mensaje.lower().strip()
     mensaje_upper = mensaje.upper().strip()
     
-    # === VERIFICAR SI ES RESPUESTA DE ASESOR (C-XXXX) ===
-    if mensaje_upper.startswith("RESPUESTA C-") or mensaje_upper.startswith("C-"):
-        return procesar_respuesta_asesor(mensaje, sender)
-    
-    # === VERIFICAR SI ES RESPUESTA DE PRESUPUESTO (P-XXXX) ===
-    if mensaje_upper.startswith("RESPUESTA P-") or mensaje_upper.startswith("P-"):
-        return procesar_respuesta_presupuesto(mensaje, sender)
-    
-    # === VERIFICAR SI ES RESPUESTA SIMPLE (P0001 o C0005) ===
-    codigo_presupuesto = extraer_codigo_presupuesto(mensaje_upper)
-    if codigo_presupuesto:
-        return procesar_respuesta_presupuesto_simple(mensaje, sender, codigo_presupuesto)
-    
-    codigo_consulta = extraer_codigo_consulta(mensaje_upper)
-    if codigo_consulta:
-        return procesar_respuesta_asesor_simple(mensaje, sender, codigo_consulta)
-    
-    # === VERIFICAR COMANDOS PRINCIPALES ===
-    if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
-        logger.info("   ✅ Intención: Menú principal")
-        sesiones[sender] = None
-        return mostrar_menu()
-    
-    if mensaje_lower == "1" or mensaje_lower.startswith("presupuesto"):
-        logger.info("   ✅ Intención: Presupuesto")
-        return iniciar_presupuesto(sender)
-    
-    if mensaje_lower == "2" or "estado" in mensaje_lower:
-        logger.info("   ✅ Intención: Consultar estado")
-        sesiones[sender] = None
-        return consultar_estado(sender)
-    
-    if mensaje_lower == "3" or "asesor" in mensaje_lower:
-        logger.info("   ✅ Intención: Hablar con asesor")
-        return iniciar_asesor(sender)
-    
-    if mensaje_lower == "4" or "reclamo" in mensaje_lower:
-        logger.info("   ✅ Intención: Reclamos o sugerencias")
-        sesiones[sender] = None
-        return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
-    
-    if mensaje_lower == "0" or mensaje_lower == "menu" or mensaje_lower == "menú":
-        logger.info("   ✅ Intención: Volver al menú")
-        sesiones[sender] = None
-        return mostrar_menu()
-    
-    if mensaje_lower == "cancelar":
-        logger.info("   ✅ Intención: Cancelar")
-        sesiones[sender] = None
-        return cancelar_flujo()
-    
-    # === VERIFICAR ESTADO DE SESIÓN ===
+    # === VERIFICAR ESTADO DE SESIÓN PRIMERO ===
+    # Esto evita que palabras como "presupuesto" dentro del flujo de asesor
+    # activen el flujo de presupuesto
     estado_actual = sesiones.get(sender)
     
     if estado_actual:
@@ -136,6 +87,58 @@ def procesar_mensaje(mensaje, sender):
         # Estado
         elif estado_actual == "esperando_dni_estado":
             return procesar_dni_estado(sender, mensaje)
+    
+    # === VERIFICAR SI ES RESPUESTA DE ASESOR (C-XXXX) ===
+    if mensaje_upper.startswith("RESPUESTA C-") or mensaje_upper.startswith("C-"):
+        return procesar_respuesta_asesor(mensaje, sender)
+    
+    # === VERIFICAR SI ES RESPUESTA DE PRESUPUESTO (P-XXXX) ===
+    if mensaje_upper.startswith("RESPUESTA P-") or mensaje_upper.startswith("P-"):
+        return procesar_respuesta_presupuesto(mensaje, sender)
+    
+    # === VERIFICAR SI ES RESPUESTA SIMPLE (P0001 o C0005) ===
+    codigo_presupuesto = extraer_codigo_presupuesto(mensaje_upper)
+    if codigo_presupuesto:
+        return procesar_respuesta_presupuesto_simple(mensaje, sender, codigo_presupuesto)
+    
+    codigo_consulta = extraer_codigo_consulta(mensaje_upper)
+    if codigo_consulta:
+        return procesar_respuesta_asesor_simple(mensaje, sender, codigo_consulta)
+    
+    # === VERIFICAR COMANDOS PRINCIPALES ===
+    if mensaje_lower in ["hola", "buenos dias", "buenas tardes"]:
+        logger.info("   ✅ Intención: Menú principal")
+        sesiones[sender] = None
+        return mostrar_menu()
+    
+    # CORREGIDO: Solo detecta "presupuesto" exacto, no cualquier mensaje que contenga la palabra
+    if mensaje_lower == "1" or mensaje_lower == "presupuesto":
+        logger.info("   ✅ Intención: Presupuesto")
+        return iniciar_presupuesto(sender)
+    
+    if mensaje_lower == "2" or mensaje_lower == "estado" or "estado" in mensaje_lower:
+        logger.info("   ✅ Intención: Consultar estado")
+        sesiones[sender] = None
+        return consultar_estado(sender)
+    
+    if mensaje_lower == "3" or mensaje_lower == "asesor":
+        logger.info("   ✅ Intención: Hablar con asesor")
+        return iniciar_asesor(sender)
+    
+    if mensaje_lower == "4" or mensaje_lower == "reclamo" or mensaje_lower == "sugerencia":
+        logger.info("   ✅ Intención: Reclamos o sugerencias")
+        sesiones[sender] = None
+        return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
+    
+    if mensaje_lower == "0" or mensaje_lower == "menu" or mensaje_lower == "menú":
+        logger.info("   ✅ Intención: Volver al menú")
+        sesiones[sender] = None
+        return mostrar_menu()
+    
+    if mensaje_lower == "cancelar":
+        logger.info("   ✅ Intención: Cancelar")
+        sesiones[sender] = None
+        return cancelar_flujo()
     
     logger.warning("   ⚠️ Intención no reconocida")
     return no_entendido()
@@ -198,13 +201,32 @@ def procesar_respuesta_asesor(mensaje, sender):
         return "⚠️ Error al enviar la respuesta."
     
     client = Client(account_sid, auth_token)
+    
+    # CORREGIDO: Evitar doble prefijo whatsapp:
+    if cliente_telefono.startswith('whatsapp:'):
+        to = cliente_telefono
+    else:
+        to = f'whatsapp:{cliente_telefono}'
+    
     client.messages.create(
         from_=f'whatsapp:{from_number}',
         body=f"📞 *Un asesor te responde:*\n{respuesta_texto}",
-        to=f'whatsapp:{cliente_telefono}'
+        to=to
     )
     logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
     
+    # ✅ NUEVO: Enviar confirmación al asesor
+    try:
+        client.messages.create(
+            from_=f'whatsapp:{from_number}',
+            body=f"✅ *Tu respuesta fue enviada al cliente*\n\n📋 Consulta: {codigo}\n📩 El cliente ya recibió tu mensaje.",
+            to=sender
+        )
+        logger.info(f"✅ Confirmación enviada al asesor {sender}")
+    except Exception as e:
+        logger.error(f"❌ Error al enviar confirmación al asesor: {e}")
+    
+    # Actualizar estado en CONSULTAS
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         result = service.spreadsheets().values().get(
@@ -345,13 +367,32 @@ def procesar_respuesta_asesor_simple(mensaje, sender, codigo):
         return "⚠️ Error al enviar la respuesta."
     
     client = Client(account_sid, auth_token)
+    
+    # CORREGIDO: Evitar doble prefijo whatsapp:
+    if cliente_telefono.startswith('whatsapp:'):
+        to = cliente_telefono
+    else:
+        to = f'whatsapp:{cliente_telefono}'
+    
     client.messages.create(
         from_=f'whatsapp:{from_number}',
         body=f"📞 *Un asesor te responde:*\n{respuesta_texto}",
-        to=f'whatsapp:{cliente_telefono}'
+        to=to
     )
     logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
     
+    # ✅ NUEVO: Enviar confirmación al asesor
+    try:
+        client.messages.create(
+            from_=f'whatsapp:{from_number}',
+            body=f"✅ *Tu respuesta fue enviada al cliente*\n\n📋 Consulta: {codigo}\n📩 El cliente ya recibió tu mensaje.",
+            to=sender
+        )
+        logger.info(f"✅ Confirmación enviada al asesor {sender}")
+    except Exception as e:
+        logger.error(f"❌ Error al enviar confirmación al asesor: {e}")
+    
+    # Actualizar estado en CONSULTAS
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         result = service.spreadsheets().values().get(
