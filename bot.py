@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal del sistema de gestión - CON FLUJO COMPLETO DE PRESUPUESTO
+# Orquestador principal del sistema de gestión - VERSIÓN ESTABLE (SIN SCHEDULER)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -9,8 +9,6 @@ from googleapiclient.discovery import build
 import os
 import sys
 import logging
-import threading
-import time
 import re
 
 logging.basicConfig(
@@ -22,30 +20,6 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 sesiones = {}
-
-# ============================================================
-# SCHEDULER PARA TIMEOUTS
-# ============================================================
-
-def scheduler_timeouts():
-    """
-    Ejecuta verificar_timeout_avanzado cada 60 segundos en un hilo separado.
-    """
-    logger.info("⏰ Iniciando scheduler de timeouts (cada 60 segundos)")
-    while True:
-        try:
-            from areas.gestion_ventas.asesores import verificar_timeout_avanzado
-            verificar_timeout_avanzado()
-        except Exception as e:
-            logger.error(f"❌ Error en scheduler de timeouts: {e}")
-            import traceback
-            traceback.print_exc()
-        time.sleep(60)
-
-# Iniciar el scheduler en un hilo daemon
-scheduler_thread = threading.Thread(target=scheduler_timeouts, daemon=True)
-scheduler_thread.start()
-logger.info("✅ Scheduler de timeouts iniciado correctamente")
 
 # ============================================================
 # RUTA DE WHATSAPP (WEBHOOK)
@@ -172,7 +146,6 @@ def procesar_mensaje(mensaje, sender):
 
 def extraer_codigo_presupuesto(texto):
     """Extrae un código de presupuesto (P-0001 o P0001) del texto."""
-    # Buscar P-XXXX o PXXXX
     match = re.search(r'P[-]?(\d{4})', texto)
     if match:
         return f"P-{match.group(1)}"
@@ -197,7 +170,6 @@ def procesar_respuesta_asesor(mensaje, sender):
     if not codigo:
         return no_entendido()
     
-    # Extraer el mensaje (todo lo que viene después del código)
     partes = re.split(r'C[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
     if len(partes) < 2:
         return "⚠️ No se encontró el mensaje. Usá el formato: C0001 (tu mensaje)"
@@ -206,20 +178,17 @@ def procesar_respuesta_asesor(mensaje, sender):
     if not respuesta_texto:
         return "⚠️ No escribiste ningún mensaje. Usá el formato: C0001 (tu mensaje)"
     
-    # Buscar el teléfono del cliente
     cliente_telefono = asesores.obtener_telefono_cliente(codigo)
     if not cliente_telefono:
         notificaciones.notificar_error_respuesta(codigo)
         return "⚠️ No se encontró la consulta."
     
-    # Verificar que no sea el mismo número
     sender_clean = sender.replace('whatsapp:', '') if sender.startswith('whatsapp:') else sender
     cliente_clean = cliente_telefono.replace('whatsapp:', '') if cliente_telefono.startswith('whatsapp:') else cliente_telefono
     
     if sender_clean == cliente_clean:
         return "✅ Mensaje registrado. (No te enviamos el mensaje a ti mismo como cliente)"
     
-    # Enviar al cliente
     from twilio.rest import Client
     account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
@@ -236,7 +205,6 @@ def procesar_respuesta_asesor(mensaje, sender):
     )
     logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
     
-    # Actualizar estado en CONSULTAS
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         result = service.spreadsheets().values().get(
@@ -271,7 +239,6 @@ def procesar_respuesta_presupuesto(mensaje, sender):
     if not codigo:
         return no_entendido()
     
-    # Extraer el mensaje
     partes = re.split(r'P[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
     if len(partes) < 2:
         return "⚠️ No se encontró el mensaje. Usá el formato: P0001 (tu mensaje)"
@@ -280,20 +247,17 @@ def procesar_respuesta_presupuesto(mensaje, sender):
     if not respuesta_texto:
         return "⚠️ No escribiste ningún mensaje. Usá el formato: P0001 (tu mensaje)"
     
-    # Buscar el presupuesto
     pedido = presupuesto.obtener_presupuesto(codigo)
     if not pedido:
         notificaciones.notificar_error_respuesta(codigo)
         return f"⚠️ No se encontró el presupuesto {codigo}."
     
-    # Verificar que no sea el mismo número
     sender_clean = sender.replace('whatsapp:', '') if sender.startswith('whatsapp:') else sender
     cliente_clean = pedido['telefono'].replace('whatsapp:', '') if pedido['telefono'].startswith('whatsapp:') else pedido['telefono']
     
     if sender_clean == cliente_clean:
         return "✅ Mensaje registrado. (No te enviamos el mensaje a ti mismo como cliente)"
     
-    # Extraer precio del mensaje (si tiene formato $123.456 o 123456)
     precio_match = re.search(r'[\$]?(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
     if precio_match:
         precio_str = precio_match.group(1).replace('.', '')
@@ -304,13 +268,8 @@ def procesar_respuesta_presupuesto(mensaje, sender):
         except:
             pass
     
-    # Actualizar estado a "Enviado"
     presupuesto.actualizar_estado(codigo, presupuesto.ESTADOS["ENVIADO"])
-    
-    # Notificar al dueño que se envió
     notificaciones.notificar_respuesta_dueño(codigo, respuesta_texto)
-    
-    # Enviar al cliente con opciones
     notificaciones.notificar_presupuesto_cliente(codigo, pedido, respuesta_texto, es_modificacion=False)
     
     return "✅ Tu respuesta fue enviada al cliente."
@@ -319,7 +278,6 @@ def procesar_respuesta_presupuesto_simple(mensaje, sender, codigo):
     """Procesa respuesta simple del dueño (P0001 mensaje)."""
     logger.info(f"   📞 Procesando respuesta simple de presupuesto: {codigo}")
     
-    # Extraer el mensaje (todo lo que viene después del código)
     partes = re.split(r'P[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
     if len(partes) < 2:
         return "⚠️ No se encontró el mensaje. Usá el formato: P0001 (tu mensaje)"
@@ -328,20 +286,17 @@ def procesar_respuesta_presupuesto_simple(mensaje, sender, codigo):
     if not respuesta_texto:
         return "⚠️ No escribiste ningún mensaje. Usá el formato: P0001 (tu mensaje)"
     
-    # Buscar el presupuesto
     pedido = presupuesto.obtener_presupuesto(codigo)
     if not pedido:
         notificaciones.notificar_error_respuesta(codigo)
         return f"⚠️ No se encontró el presupuesto {codigo}."
     
-    # Verificar que no sea el mismo número
     sender_clean = sender.replace('whatsapp:', '') if sender.startswith('whatsapp:') else sender
     cliente_clean = pedido['telefono'].replace('whatsapp:', '') if pedido['telefono'].startswith('whatsapp:') else pedido['telefono']
     
     if sender_clean == cliente_clean:
         return "✅ Mensaje registrado. (No te enviamos el mensaje a ti mismo como cliente)"
     
-    # Extraer precio del mensaje
     precio_match = re.search(r'[\$]?(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
     if precio_match:
         precio_str = precio_match.group(1).replace('.', '')
@@ -352,13 +307,8 @@ def procesar_respuesta_presupuesto_simple(mensaje, sender, codigo):
         except:
             pass
     
-    # Actualizar estado a "Enviado"
     presupuesto.actualizar_estado(codigo, presupuesto.ESTADOS["ENVIADO"])
-    
-    # Notificar al dueño que se envió
     notificaciones.notificar_respuesta_dueño(codigo, respuesta_texto)
-    
-    # Enviar al cliente con opciones
     notificaciones.notificar_presupuesto_cliente(codigo, pedido, respuesta_texto, es_modificacion=False)
     
     return "✅ Tu respuesta fue enviada al cliente."
@@ -367,7 +317,6 @@ def procesar_respuesta_asesor_simple(mensaje, sender, codigo):
     """Procesa respuesta simple del asesor (C0005 mensaje)."""
     logger.info(f"   📞 Procesando respuesta simple de consulta: {codigo}")
     
-    # Extraer el mensaje
     partes = re.split(r'C[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
     if len(partes) < 2:
         return "⚠️ No se encontró el mensaje. Usá el formato: C0005 (tu mensaje)"
@@ -376,20 +325,17 @@ def procesar_respuesta_asesor_simple(mensaje, sender, codigo):
     if not respuesta_texto:
         return "⚠️ No escribiste ningún mensaje. Usá el formato: C0005 (tu mensaje)"
     
-    # Buscar el teléfono del cliente
     cliente_telefono = asesores.obtener_telefono_cliente(codigo)
     if not cliente_telefono:
         notificaciones.notificar_error_respuesta(codigo)
         return "⚠️ No se encontró la consulta."
     
-    # Verificar que no sea el mismo número
     sender_clean = sender.replace('whatsapp:', '') if sender.startswith('whatsapp:') else sender
     cliente_clean = cliente_telefono.replace('whatsapp:', '') if cliente_telefono.startswith('whatsapp:') else cliente_telefono
     
     if sender_clean == cliente_clean:
         return "✅ Mensaje registrado. (No te enviamos el mensaje a ti mismo como cliente)"
     
-    # Enviar al cliente
     from twilio.rest import Client
     account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
@@ -406,7 +352,6 @@ def procesar_respuesta_asesor_simple(mensaje, sender, codigo):
     )
     logger.info(f"✅ Respuesta enviada al cliente {cliente_telefono}")
     
-    # Actualizar estado en CONSULTAS
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         result = service.spreadsheets().values().get(
@@ -434,11 +379,10 @@ def procesar_respuesta_asesor_simple(mensaje, sender, codigo):
     return "✅ Tu respuesta fue enviada al cliente."
 
 # ============================================================
-# FLUJO DE PRESUPUESTO
+# FLUJO DE PRESUPUESTO (TODAS LAS FUNCIONES)
 # ============================================================
 
 def iniciar_presupuesto(sender):
-    """Paso 1: Preguntar el producto"""
     logger.info(f"📝 Iniciando presupuesto para {sender}")
     sesiones[sender] = "esperando_producto_presupuesto"
     
@@ -460,12 +404,9 @@ def iniciar_presupuesto(sender):
 """
 
 def procesar_producto_presupuesto(sender, mensaje):
-    """Paso 2: Guardar producto y preguntar personalización"""
     logger.info(f"📝 Producto recibido: {mensaje}")
-    
     sesiones[sender] = "esperando_personalizacion_presupuesto"
-    # Guardar producto en un dict temporal (lo haremos con una variable global o en la sesión)
-    # Como estamos usando sesiones como string, usaremos un dict global para datos temporales
+    
     if not hasattr(procesar_producto_presupuesto, 'datos_temporales'):
         procesar_producto_presupuesto.datos_temporales = {}
     procesar_producto_presupuesto.datos_temporales[sender] = {"producto": mensaje}
@@ -480,15 +421,12 @@ def procesar_producto_presupuesto(sender, mensaje):
 • Color: Nogal oscuro
 • Terminación: Mate
 • Tipo de madera: Roble macizo
-• Detalles especiales: Patas torneadas
 
 👉 Escribí los detalles de personalización:
 """
 
 def procesar_personalizacion_presupuesto(sender, mensaje):
-    """Paso 3: Guardar personalización y preguntar DNI"""
     logger.info(f"📝 Personalización recibida: {mensaje}")
-    
     sesiones[sender] = "esperando_dni_presupuesto"
     
     if hasattr(procesar_producto_presupuesto, 'datos_temporales') and sender in procesar_producto_presupuesto.datos_temporales:
@@ -506,7 +444,6 @@ def procesar_personalizacion_presupuesto(sender, mensaje):
 """
 
 def procesar_dni_presupuesto(sender, mensaje):
-    """Paso 4: Verificar DNI y crear presupuesto o pedir más datos"""
     logger.info(f"📝 DNI recibido: {mensaje}")
     
     if not mensaje.isdigit() or len(mensaje) < 7:
@@ -518,14 +455,11 @@ El DNI debe tener al menos 7 dígitos y solo números.
 👉 Escribí tu DNI nuevamente o CANCELAR para salir:
 """
     
-    # Buscar cliente
     cliente = buscar_por_dni(mensaje)
     
     if cliente:
-        # Cliente existente - crear presupuesto
         return crear_presupuesto_final(sender, cliente)
     else:
-        # Cliente nuevo - pedir nombre
         sesiones[sender] = "esperando_nombre_presupuesto"
         
         if hasattr(procesar_producto_presupuesto, 'datos_temporales') and sender in procesar_producto_presupuesto.datos_temporales:
@@ -542,9 +476,7 @@ No encontré tu DNI en el sistema. Necesito algunos datos más:
 """
 
 def procesar_nombre_presupuesto(sender, mensaje):
-    """Paso 5: Guardar nombre y pedir teléfono"""
     logger.info(f"📝 Nombre recibido: {mensaje}")
-    
     sesiones[sender] = "esperando_telefono_presupuesto"
     
     if hasattr(procesar_producto_presupuesto, 'datos_temporales') and sender in procesar_producto_presupuesto.datos_temporales:
@@ -561,7 +493,6 @@ def procesar_nombre_presupuesto(sender, mensaje):
 """
 
 def procesar_telefono_presupuesto(sender, mensaje):
-    """Paso 6: Guardar teléfono y crear presupuesto"""
     logger.info(f"📝 Teléfono recibido: {mensaje}")
     
     if not mensaje.isdigit() or len(mensaje) < 7:
@@ -577,20 +508,17 @@ El teléfono debe tener al menos 7 dígitos y solo números.
         procesar_producto_presupuesto.datos_temporales[sender]["telefono"] = mensaje
         datos = procesar_producto_presupuesto.datos_temporales[sender]
         
-        # Crear cliente nuevo
         cliente = {
             "dni": datos.get("dni", ""),
             "nombre": datos.get("nombre", ""),
             "telefono": datos.get("telefono", "")
         }
         
-        # Crear presupuesto
         return crear_presupuesto_final(sender, cliente)
     
     return "❌ Error: No se encontraron los datos del presupuesto."
 
 def crear_presupuesto_final(sender, cliente):
-    """Función final que crea el presupuesto y notifica"""
     if hasattr(procesar_producto_presupuesto, 'datos_temporales') and sender in procesar_producto_presupuesto.datos_temporales:
         datos = procesar_producto_presupuesto.datos_temporales[sender]
         
@@ -598,12 +526,9 @@ def crear_presupuesto_final(sender, cliente):
         personalizacion = datos.get("personalizacion", "")
         dni = cliente.get("dni") if isinstance(cliente, dict) else cliente.get("dni", "")
         
-        # Limpiar datos temporales
         del procesar_producto_presupuesto.datos_temporales[sender]
         
-        # Crear presupuesto
         if isinstance(cliente, dict) and "nombre" in cliente and "telefono" in cliente:
-            # Cliente nuevo
             resultado = presupuesto.crear_presupuesto(
                 sender=sender,
                 producto=producto,
@@ -613,7 +538,6 @@ def crear_presupuesto_final(sender, cliente):
                 telefono=cliente["telefono"]
             )
         else:
-            # Cliente existente
             resultado = presupuesto.crear_presupuesto(
                 sender=sender,
                 producto=producto,
@@ -625,7 +549,6 @@ def crear_presupuesto_final(sender, cliente):
             numero_presupuesto = resultado["numero"]
             cliente_data = resultado["cliente"]
             
-            # Notificar al dueño
             notificaciones.notificar_nuevo_presupuesto(
                 numero_presupuesto=numero_presupuesto,
                 datos_cliente=cliente_data,
@@ -633,7 +556,6 @@ def crear_presupuesto_final(sender, cliente):
                 personalizacion=personalizacion
             )
             
-            # Limpiar sesión
             sesiones[sender] = None
             
             return f"""
@@ -667,14 +589,12 @@ Hubo un problema al guardar tu solicitud. Por favor, intentá de nuevo más tard
     return "❌ Error: No se encontraron los datos del presupuesto."
 
 # ============================================================
-# PROCESAMIENTO DE ACCIONES DEL CLIENTE (ACEPTAR/RECHAZAR/MODIFICAR)
+# PROCESAMIENTO DE ACCIONES DEL CLIENTE
 # ============================================================
 
 def procesar_accion_presupuesto(sender, mensaje):
-    """Procesa la acción del cliente sobre el presupuesto (1, 2, 3, 4)"""
     logger.info(f"📝 Procesando acción de presupuesto: {mensaje}")
     
-    # Obtener el presupuesto de la sesión
     if not hasattr(procesar_accion_presupuesto, 'datos_presupuesto'):
         return "❌ Error: No se encontró el presupuesto."
     
@@ -688,12 +608,10 @@ def procesar_accion_presupuesto(sender, mensaje):
     if not pedido:
         return "❌ Error: No se encontró el presupuesto."
     
-    # Opción 1: Aceptar
     if mensaje == "1":
         presupuesto.actualizar_estado(numero_presupuesto, presupuesto.ESTADOS["ACEPTADO"])
         notificaciones.notificar_aceptacion_cliente(numero_presupuesto, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido)
         
-        # Mostrar formas de pago
         sesiones[sender] = "esperando_forma_pago"
         if not hasattr(procesar_forma_pago, 'datos_presupuesto'):
             procesar_forma_pago.datos_presupuesto = {}
@@ -713,7 +631,6 @@ def procesar_accion_presupuesto(sender, mensaje):
 👉 Escribí el número de la opción que desees.
 """
     
-    # Opción 2: Rechazar
     elif mensaje == "2":
         presupuesto.actualizar_estado(numero_presupuesto, presupuesto.ESTADOS["RECHAZADO"])
         notificaciones.notificar_rechazo_cliente(numero_presupuesto, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido)
@@ -735,7 +652,6 @@ Entendemos que el presupuesto no se ajusta a lo que buscabas.
 👉 Escribí el número de la opción que desees.
 """
     
-    # Opción 3: Modificar
     elif mensaje == "3":
         sesiones[sender] = "esperando_modificacion_presupuesto"
         
@@ -752,7 +668,6 @@ Contanos qué cambios te gustaría hacer en el presupuesto:
 👉 Escribí los cambios que deseas:
 """
     
-    # Opción 4: Asesor
     elif mensaje == "4":
         sesiones[sender] = None
         if sender in procesar_accion_presupuesto.datos_presupuesto:
@@ -773,10 +688,8 @@ Elegí una de las siguientes opciones:
 """
 
 def procesar_modificacion_presupuesto(sender, mensaje):
-    """Procesa la solicitud de modificación del cliente"""
     logger.info(f"📝 Modificación recibida: {mensaje}")
     
-    # Obtener el presupuesto
     if not hasattr(procesar_accion_presupuesto, 'datos_presupuesto'):
         return "❌ Error: No se encontró el presupuesto."
     
@@ -790,11 +703,9 @@ def procesar_modificacion_presupuesto(sender, mensaje):
     if not pedido:
         return "❌ Error: No se encontró el presupuesto."
     
-    # Guardar la modificación
     presupuesto.guardar_modificacion(numero_presupuesto, mensaje)
     presupuesto.actualizar_estado(numero_presupuesto, presupuesto.ESTADOS["MODIFICADO"])
     
-    # Notificar al dueño
     notificaciones.notificar_modificacion_cliente(
         numero_presupuesto,
         {"nombre": pedido["nombre"], "telefono": pedido["telefono"]},
@@ -819,10 +730,8 @@ Un asesor revisará tus solicitudes y te responderá por este mismo chat.
 """
 
 def procesar_forma_pago(sender, mensaje):
-    """Procesa la forma de pago elegida por el cliente"""
     logger.info(f"📝 Forma de pago recibida: {mensaje}")
     
-    # Obtener el presupuesto
     if not hasattr(procesar_forma_pago, 'datos_presupuesto'):
         return "❌ Error: No se encontró el presupuesto."
     
@@ -835,7 +744,6 @@ def procesar_forma_pago(sender, mensaje):
     if not pedido:
         return "❌ Error: No se encontró el presupuesto."
     
-    # Opción 1: Transferencia
     if mensaje == "1":
         forma_pago = "Transferencia bancaria"
         presupuesto.actualizar_forma_pago(numero_presupuesto, forma_pago)
@@ -844,23 +752,22 @@ def procesar_forma_pago(sender, mensaje):
         sesiones[sender] = None
         del procesar_forma_pago.datos_presupuesto[sender]
         
-        return """
+        return f"""
 💰 *Transferencia bancaria*
 
 Datos para transferir:  
 🏦 *Banco Nación*  
 📌 *CBU:* 1234567890123456789012  
 📌 *Alias:* CARPINTERIA.RADI  
-📌 *Monto:* ${}
+📌 *Monto:* ${pedido['precio']}
 
 Una vez que hagas la transferencia, enviá el comprobante por este chat.
 
 👉 Escribí MENU para volver al inicio.
 
 ¡Gracias por confiar en Carpintería Radi! 🪑
-""".format(pedido['precio'])
+"""
     
-    # Opción 2: Efectivo (con descuento)
     elif mensaje == "2":
         precio_original = int(pedido['precio']) if pedido['precio'] else 0
         descuento = int(precio_original * 10 / 100)
@@ -892,7 +799,6 @@ Un asesor se pondrá en contacto para coordinar el retiro o entrega.
 ¡Gracias por confiar en Carpintería Radi! 🪑
 """
     
-    # Opción 3: Cuotas
     elif mensaje == "3":
         sesiones[sender] = "esperando_cuotas_presupuesto"
         
@@ -986,7 +892,6 @@ Para consultar el estado de tu pedido, necesito tu **DNI** o **CUIT**.
 """
 
 def procesar_dni_estado(sender, mensaje):
-    """Procesa el DNI y busca el estado del pedido"""
     logger.info(f"🔍 DNI recibido para estado: {mensaje}")
     
     if not mensaje.isdigit() or len(mensaje) < 7:
