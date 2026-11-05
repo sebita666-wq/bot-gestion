@@ -200,7 +200,8 @@ def p_dni(sender, mensaje):
         return "❌ *DNI inválido*\n👉 Escribilo de nuevo o CANCELAR:"
     datos_temporales_presupuesto[sender]["dni"] = mensaje
     cliente = buscar_por_dni(mensaje)
-    if cliente: return crear_presupuesto_final(sender, cliente)
+    if cliente: 
+        return crear_presupuesto_final(sender, cliente)
     
     sesiones[sender] = "esperando_nombre"
     return "👤 *Cliente nuevo*\n\n📝 ¿Cuál es tu nombre completo?\n👉 Escribí tu nombre:"
