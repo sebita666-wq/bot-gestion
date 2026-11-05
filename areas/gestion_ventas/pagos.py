@@ -13,14 +13,13 @@ def mostrar_opciones_pago():
 
 def transferencia(pedido, conf):
     banco = conf.get('banco_transferencia', 'Banco Nación')
-    cbu = conf.get('cbu_transferencia', '1234567890')
-    alias = conf.get('alias_transferencia', 'ALIAS')
-    nombre = conf.get('nombre_negocio', 'Nuestro negocio')
+    cbu = conf.get('cbu_transferencia', '1234567890123456789012')
+    alias = conf.get('alias_transferencia', 'CARPINTERIA.RADI')
+    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
     return f"""
 💰 *Transferencia bancaria*
 
-Datos para transferir:  
 🏦 *{banco}*  
 📌 *CBU:* {cbu}  
 📌 *Alias:* {alias}  
@@ -30,7 +29,7 @@ Una vez que hagas la transferencia, enviá el comprobante por este chat.
 
 👉 Escribí MENU para volver al inicio.
 
-¡Gracias por confiar en {nombre}! 🪑
+¡Gracias por confiar en {nombre}! ✨
 """
 
 def efectivo(pedido, conf):
@@ -41,31 +40,31 @@ def efectivo(pedido, conf):
     
     direccion = conf.get('direccion_local', 'Nuestro taller')
     horario = conf.get('horario_atencion', 'Horario de atención')
-    nombre = conf.get('nombre_negocio', 'Nuestro negocio')
+    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
     return f"""
 💰 *Pago en efectivo*
 
 Precio original: ${precio_original}  
-🎉 *Descuento por pago en efectivo: {descuento_porc}%*  
-💰 *Total a pagar en efectivo: ${precio_final}*
+🎉 *Descuento: {descuento_porc}%*  
+💰 *Total: ${precio_final}*
 
-Podés pasar por nuestro taller:  
 📍 *{direccion}*  
 ⏰ *{horario}*
 
 👉 Escribí MENU para volver al inicio.
 
-¡Gracias por confiar en {nombre}! 
+¡Gracias por confiar en {nombre}! ✨
 """
 
 def cuotas(pedido, conf):
     precio = int(pedido['precio']) if pedido['precio'] else 0
     interes = int(conf.get('interes_cuota', 0))
     texto_interes = f"con {interes}% de interés" if interes > 0 else "sin interés"
+    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
     return f"""
-💰 *Pago en cuotas de la casa*
+💳 *Cuotas de la casa*
 
 Precio total: ${precio}
 ({texto_interes})
