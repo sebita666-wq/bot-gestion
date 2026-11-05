@@ -1,17 +1,16 @@
 # areas/gestion_ventas/notificaciones.py
-# Sistema de notificaciones REAL con Twilio
+# Sistema de notificaciones REAL con Twilio (Textos para dueño y cliente)
 
 from utils import config
 import os
 import logging
 from twilio.rest import Client
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 def enviar_whatsapp(destino, mensaje):
-    """
-    Envía un mensaje de WhatsApp REAL usando Twilio.
-    """
+    """Envía un mensaje de WhatsApp REAL usando Twilio."""
     try:
         account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
         auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
@@ -41,9 +40,7 @@ def enviar_whatsapp(destino, mensaje):
         return False
 
 def notificar_nuevo_presupuesto(numero_presupuesto, datos_cliente, producto, personalizacion, es_modificacion=False):
-    """
-    Envía una notificación al dueño cuando se crea un nuevo presupuesto o modificación.
-    """
+    """Notifica al dueño cuando se crea un nuevo presupuesto o una modificación."""
     tipo = "MODIFICACIÓN" if es_modificacion else "NUEVO PRESUPUESTO"
     emoji = "✏️" if es_modificacion else "📋"
     
@@ -51,7 +48,7 @@ def notificar_nuevo_presupuesto(numero_presupuesto, datos_cliente, producto, per
 {emoji} *{tipo}*
 
 Código: {numero_presupuesto}
-Cliente: {datos_cliente['nombre']} ({datos_cliente['telefono']}) - 👤 Cliente {'recurrente' if datos_cliente.get('recurrente') else 'nuevo'}
+Cliente: {datos_cliente['nombre']} ({datos_cliente['telefono']})
 Producto: {producto}
 Personalización: {personalizacion}
 Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
@@ -61,13 +58,10 @@ Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 Ejemplo: {numero_presupuesto.replace('-', '')} El presupuesto es de $150.000
 """
-    from datetime import datetime
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_respuesta_dueño(numero_presupuesto, mensaje_respuesta):
-    """
-    Confirma al dueño que su respuesta fue enviada al cliente.
-    """
+    """Confirma al dueño que su respuesta fue enviada al cliente."""
     mensaje = f"""
 ✅ *Respuesta enviada*
 
@@ -78,9 +72,7 @@ Tu respuesta para el presupuesto {numero_presupuesto} fue enviada exitosamente a
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_error_respuesta(numero):
-    """
-    Notifica al dueño que no encontró el presupuesto.
-    """
+    """Notifica al dueño que no encontró el presupuesto."""
     mensaje = f"""
 ❌ *Error al enviar*
 
@@ -93,9 +85,7 @@ Ejemplo correcto: {numero.replace('-', '')} (tu mensaje)
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_presupuesto_cliente(numero_presupuesto, datos_presupuesto, mensaje_dueño, es_modificacion=False):
-    """
-    Envía el presupuesto al cliente con las opciones de acción.
-    """
+    """Envía el presupuesto al cliente con las opciones de acción."""
     modificacion_texto = " (Modificado)" if es_modificacion else ""
     
     mensaje = f"""
@@ -120,9 +110,7 @@ Personalización: {datos_presupuesto['personalizacion']}
     return enviar_whatsapp(datos_presupuesto['telefono'], mensaje)
 
 def notificar_aceptacion_cliente(numero_presupuesto, datos_cliente, datos_presupuesto):
-    """
-    Notifica al dueño que el cliente aceptó el presupuesto.
-    """
+    """Notifica al dueño que el cliente aceptó el presupuesto."""
     mensaje = f"""
 ✅ *Presupuesto aceptado*
 
@@ -136,9 +124,7 @@ Precio: ${datos_presupuesto['precio']}
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_rechazo_cliente(numero_presupuesto, datos_cliente, datos_presupuesto):
-    """
-    Notifica al dueño que el cliente rechazó el presupuesto.
-    """
+    """Notifica al dueño que el cliente rechazó el presupuesto."""
     mensaje = f"""
 ❌ *Presupuesto rechazado*
 
@@ -151,9 +137,7 @@ Precio ofrecido: ${datos_presupuesto['precio']}
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_modificacion_cliente(numero_presupuesto, datos_cliente, datos_presupuesto, texto_modificacion):
-    """
-    Notifica al dueño que el cliente solicitó modificaciones.
-    """
+    """Notifica al dueño que el cliente solicitó modificaciones."""
     mensaje = f"""
 ✏️ *Solicitud de modificaciones*
 
@@ -173,9 +157,7 @@ Ejemplo: {numero_presupuesto.replace('-', '')} Podemos hacerlo por $130.000
     return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
 
 def notificar_forma_pago(numero_presupuesto, datos_cliente, datos_presupuesto, forma_pago):
-    """
-    Notifica al dueño la forma de pago elegida por el cliente.
-    """
+    """Notifica al dueño la forma de pago elegida por el cliente."""
     mensaje = f"""
 💰 *Forma de pago seleccionada*
 
