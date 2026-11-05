@@ -47,13 +47,28 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # 1. RESPUESTAS DEL DUEÑO
+    # 1. RESPUESTAS DEL DUEÑO (Prioridad máxima)
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. COMANDOS GLOBALES
+    # 2. VERIFICAR ESTADO DE SESIÓN (Si el cliente está en medio de un flujo, va primero)
+    estado = sesiones.get(sender)
+    if estado:
+        if estado == "esperando_producto": return p_producto(sender, mensaje)
+        if estado == "esperando_personalizacion": return p_personalizacion(sender, mensaje)
+        if estado == "esperando_dni": return p_dni(sender, mensaje)
+        if estado == "esperando_nombre": return p_nombre(sender, mensaje)
+        if estado == "esperando_telefono": return p_telefono(sender, mensaje)
+        if estado == "esperando_accion": return p_accion(sender, mensaje)
+        if estado == "esperando_modificacion": return p_modificacion(sender, mensaje)
+        if estado == "esperando_forma_pago": return p_forma_pago(sender, mensaje)
+        if estado == "esperando_cuotas": return p_cuotas(sender, mensaje)
+        if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
+        if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
+
+    # 3. COMANDOS GLOBALES (Solo si NO está en medio de un flujo)
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -66,22 +81,7 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return "❌ *Operación cancelada*\n\nHas salido del área actual.\n\n👉 Escribí MENU para volver."
     
-    # 3. ESTADO ACTUAL
-    estado = sesiones.get(sender)
-    if estado:
-        if estado == "esperando_producto": return p_producto(sender, mensaje)
-        if estado == "esperando_personalizacion": return p_personalizacion(sender, mensaje)
-        if estado == "esperando_dni": return p_dni(sender, mensaje)
-        if estado == "esperando_nombre": return p_nombre(sender, mensaje)
-        if estado == "esperando_telefono": return p_telefono(sender, mensaje)
-        if estado == "esperando_accion": return p_accion(sender, mensaje)
-        if estado == "esperando_modificacion": return p_modificacion(sender, mensaje)
-        if estado == "esperando_forma_pago": return p_forma_pago(sender, mensaje)
-        if estado == "esperando_cuotas": return p_cuotas(sender, mensaje) # NUEVO ESTADO
-        if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
-        if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
-
-    # 4. OPCIONES DEL MENÚ
+    # 4. OPCIONES DEL MENÚ PRINCIPAL
     if mensaje_lower in ["1", "presupuesto"]: return iniciar_presupuesto(sender)
     if mensaje_lower in ["2", "estado"]: return iniciar_estado(sender)
     if mensaje_lower in ["3", "asesor"]:
@@ -303,7 +303,6 @@ def p_forma_pago(sender, mensaje):
         msg = pagos.efectivo(pedido, conf)
     elif mensaje == "3":
         forma = "Cuotas"
-        # En lugar de mandar el mensaje final, pasamos al estado de elegir cuotas
         sesiones[sender] = "esperando_cuotas"
         return pagos.cuotas(pedido, conf) 
     else:
@@ -316,7 +315,6 @@ def p_forma_pago(sender, mensaje):
     return msg
 
 def p_cuotas(sender, mensaje):
-    """NUEVA FUNCIÓN: Procesa la cantidad de cuotas elegida"""
     datos = datos_accion_presupuesto.get(sender, {})
     numero = datos.get("numero")
     pedido = presupuesto.obtener_presupuesto(numero)
@@ -325,16 +323,11 @@ def p_cuotas(sender, mensaje):
     if mensaje not in ["3", "6", "12"]:
         return "❌ Opción no válida. Elegí 3, 6 o 12 cuotas:"
     
-    # Guardamos la cantidad de cuotas en la base de datos (columna K)
     presupuesto.actualizar_cuotas(numero, mensaje)
     presupuesto.actualizar_forma_pago(numero, f"Cuotas ({mensaje})")
-    
-    # Notificamos al dueño que el cliente eligió cuotas
     notificaciones.notificar_forma_pago(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, f"Cuotas ({mensaje})")
     
-    # Calculamos el plan de pagos
     msg = pagos.procesar_cuotas(mensaje, pedido, conf)
-    
     sesiones[sender] = None
     datos_accion_presupuesto.pop(sender, None)
     return msg
