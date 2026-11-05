@@ -1,5 +1,5 @@
 # areas/gestion_ventas/presupuesto.py
-# Flujo de presupuestos - VERSIÓN COMPLETA CON ACEPTACIÓN/RECHAZO/MODIFICACIONES
+# Motor de presupuestos: creación, lectura, actualización de estados y precios.
 
 from utils import planillas
 from utils import config
@@ -13,15 +13,11 @@ logger = logging.getLogger(__name__)
 ESTADOS = {
     "PENDIENTE": "Pendiente",
     "EN_REVISION": "En revisión por dueño",
-    "APROBADO": "Aprobado por dueño",
     "ENVIADO": "Enviado al cliente",
     "MODIFICADO": "Modificado",
     "ACEPTADO": "Aceptado por cliente",
     "RECHAZADO": "Rechazado por cliente",
-    "PENDIENTE_AJUSTE": "Pendiente de ajuste",
-    "CONFIRMADO": "Confirmado - Pendiente producción",
-    "PAGADO": "Pagado",
-    "ENTREGADO": "Entregado"
+    "CONFIRMADO": "Confirmado - Pendiente producción"
 }
 
 def generar_numero_presupuesto():
@@ -47,9 +43,7 @@ def generar_numero_presupuesto():
         return "P-0001"
 
 def crear_presupuesto(sender, producto, personalizacion, dni=None, nombre=None, telefono=None):
-    """
-    Crea un nuevo presupuesto.
-    """
+    """Crea un nuevo presupuesto en la planilla PEDIDOS."""
     # 1. Identificar o crear al cliente
     cliente = None
     if dni:
@@ -58,58 +52,36 @@ def crear_presupuesto(sender, producto, personalizacion, dni=None, nombre=None, 
             if not nombre or not telefono:
                 return {"error": "Faltan datos del cliente", "estado": False}
             if clientes.crear_cliente(dni, nombre, telefono):
-                cliente = {
-                    "dni": dni,
-                    "nombre": nombre,
-                    "telefono": telefono
-                }
+                cliente = {"dni": dni, "nombre": nombre, "telefono": telefono}
             else:
                 return {"error": "Error al crear cliente", "estado": False}
     else:
-        if not nombre or not telefono:
-            return {"error": "Faltan datos del cliente", "estado": False}
-        if clientes.crear_cliente(dni, nombre, telefono):
-            cliente = {
-                "dni": dni,
-                "nombre": nombre,
-                "telefono": telefono
-            }
-        else:
-            return {"error": "Error al crear cliente", "estado": False}
+        return {"error": "Falta DNI", "estado": False}
     
     # 2. Generar número de presupuesto
     numero_presupuesto = generar_numero_presupuesto()
     
-    # 3. Guardar en PEDIDOS
+    # 3. Guardar en PEDIDOS (A:M son 13 columnas)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     nuevo_pedido = [[
-        numero_presupuesto,
-        fecha,
-        cliente["dni"],
-        cliente["nombre"],
-        cliente["telefono"],
-        producto,
-        personalizacion,
-        "",  # Precio (lo pone el dueño después)
-        ESTADOS["PENDIENTE"],
-        "",  # Forma de pago
-        "",  # Cuotas
-        "",  # Cuotas pagadas
-        ""   # Modificaciones solicitadas
+        numero_presupuesto, fecha, cliente["dni"], cliente["nombre"], cliente["telefono"],
+        producto, personalizacion, 
+        "",  # Precio (H)
+        ESTADOS["PENDIENTE"], # Estado (I)
+        "",  # Forma de pago (J)
+        "",  # Cuotas (K)
+        "",  # Cuotas pagadas (L)
+        ""   # Modificaciones solicitadas (M)
     ]]
     
     if planillas.escribir_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M', nuevo_pedido):
         logger.info(f"✅ Presupuesto {numero_presupuesto} creado para {cliente['nombre']}")
-        return {
-            "estado": True,
-            "numero": numero_presupuesto,
-            "cliente": cliente
-        }
+        return {"estado": True, "numero": numero_presupuesto, "cliente": cliente}
     else:
         return {"error": "Error al guardar presupuesto", "estado": False}
 
 def obtener_presupuesto(numero):
-    """Obtiene los datos de un presupuesto por su número"""
+    """Obtiene los datos de un presupuesto por su número (P-XXXX)."""
     datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
     if not datos or len(datos) < 2:
         return None
@@ -134,135 +106,63 @@ def obtener_presupuesto(numero):
     return None
 
 def actualizar_estado(numero, nuevo_estado):
-    """
-    Actualiza el estado de un presupuesto en la planilla.
-    """
+    """Actualiza la columna I (Estado) de un presupuesto."""
     try:
         datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
-        if not datos or len(datos) < 2:
-            logger.error(f"❌ No se encontraron datos para actualizar {numero}")
-            return False
-        
-        fila_encontrada = None
         for i, fila in enumerate(datos):
             if len(fila) > 0 and fila[0].strip() == numero.strip():
-                fila_encontrada = i
-                break
-        
-        if fila_encontrada is None:
-            logger.error(f"❌ Presupuesto {numero} no encontrado")
-            return False
-        
-        fila_excel = fila_encontrada + 1
-        rango_celda = f'I{fila_excel}'
-        
-        return planillas.actualizar_celda(
-            config.SPREADSHEETS["PEDIDOS"],
-            rango_celda,
-            nuevo_estado
-        )
-        
+                fila_excel = i + 1
+                rango_celda = f'I{fila_excel}'
+                return planillas.actualizar_celda(config.SPREADSHEETS["PEDIDOS"], rango_celda, nuevo_estado)
+        return False
     except Exception as e:
         logger.error(f"❌ Error al actualizar estado: {e}")
         return False
 
 def actualizar_precio(numero, nuevo_precio):
-    """
-    Actualiza el precio de un presupuesto.
-    """
+    """Actualiza la columna H (Precio)."""
     try:
         datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
-        if not datos or len(datos) < 2:
-            return False
-        
-        fila_encontrada = None
         for i, fila in enumerate(datos):
             if len(fila) > 0 and fila[0].strip() == numero.strip():
-                fila_encontrada = i
-                break
-        
-        if fila_encontrada is None:
-            return False
-        
-        fila_excel = fila_encontrada + 1
-        rango_celda = f'H{fila_excel}'
-        
-        return planillas.actualizar_celda(
-            config.SPREADSHEETS["PEDIDOS"],
-            rango_celda,
-            nuevo_precio
-        )
-        
+                fila_excel = i + 1
+                rango_celda = f'H{fila_excel}'
+                return planillas.actualizar_celda(config.SPREADSHEETS["PEDIDOS"], rango_celda, nuevo_precio)
+        return False
     except Exception as e:
         logger.error(f"❌ Error al actualizar precio: {e}")
         return False
 
-def guardar_modificacion(numero, texto_modificacion):
-    """
-    Guarda el texto de modificación en el presupuesto.
-    """
-    try:
-        datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
-        if not datos or len(datos) < 2:
-            return False
-        
-        fila_encontrada = None
-        for i, fila in enumerate(datos):
-            if len(fila) > 0 and fila[0].strip() == numero.strip():
-                fila_encontrada = i
-                break
-        
-        if fila_encontrada is None:
-            return False
-        
-        fila_excel = fila_encontrada + 1
-        rango_celda = f'M{fila_excel}'
-        
-        return planillas.actualizar_celda(
-            config.SPREADSHEETS["PEDIDOS"],
-            rango_celda,
-            texto_modificacion
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Error al guardar modificación: {e}")
-        return False
-
 def actualizar_forma_pago(numero, forma_pago):
-    """
-    Actualiza la forma de pago de un presupuesto.
-    """
+    """Actualiza la columna J (Forma de pago)."""
     try:
         datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
-        if not datos or len(datos) < 2:
-            return False
-        
-        fila_encontrada = None
         for i, fila in enumerate(datos):
             if len(fila) > 0 and fila[0].strip() == numero.strip():
-                fila_encontrada = i
-                break
-        
-        if fila_encontrada is None:
-            return False
-        
-        fila_excel = fila_encontrada + 1
-        rango_celda = f'J{fila_excel}'
-        
-        return planillas.actualizar_celda(
-            config.SPREADSHEETS["PEDIDOS"],
-            rango_celda,
-            forma_pago
-        )
-        
+                fila_excel = i + 1
+                rango_celda = f'J{fila_excel}'
+                return planillas.actualizar_celda(config.SPREADSHEETS["PEDIDOS"], rango_celda, forma_pago)
+        return False
     except Exception as e:
         logger.error(f"❌ Error al actualizar forma de pago: {e}")
         return False
 
+def guardar_modificacion(numero, texto_modificacion):
+    """Guarda el texto de modificación en la columna M."""
+    try:
+        datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
+        for i, fila in enumerate(datos):
+            if len(fila) > 0 and fila[0].strip() == numero.strip():
+                fila_excel = i + 1
+                rango_celda = f'M{fila_excel}'
+                return planillas.actualizar_celda(config.SPREADSHEETS["PEDIDOS"], rango_celda, texto_modificacion)
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error al guardar modificación: {e}")
+        return False
+
 def obtener_presupuestos_por_dni(dni):
-    """
-    Obtiene todos los presupuestos de un cliente por DNI.
-    """
+    """Para el flujo de Consultar Estado (Opción 2)."""
     datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
     if not datos or len(datos) < 2:
         return []
@@ -277,5 +177,4 @@ def obtener_presupuestos_por_dni(dni):
                 "estado": fila[8] if len(fila) > 8 else "",
                 "precio": fila[7] if len(fila) > 7 else ""
             })
-    
     return resultados
