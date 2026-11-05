@@ -1,9 +1,12 @@
 # areas/gestion_ventas/pagos.py
-# Opciones de pago: transferencia, efectivo, cuotas
+# Opciones de pago: transferencia, efectivo con descuento, cuotas
 
 from utils import planillas
 from utils import config
 from areas.gestion_ventas import presupuesto
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Configuración de pagos (se puede leer desde CONFIGURACIÓN en el futuro)
 DESCUENTO_EFECTIVO = 10  # 10% de descuento
@@ -12,32 +15,14 @@ INTERES_CUOTA = 0  # 0% de interés
 def mostrar_opciones_pago():
     """Devuelve el mensaje con las opciones de pago."""
     return """
-💰 ¿Cómo querés pagar?
+💰 *¿Cómo querés pagar?*
 
 1️⃣ Transferencia bancaria
-2️⃣ Pago en efectivo (con descuento)
+2️⃣ Pago en efectivo (10% de descuento)
 3️⃣ Cuotas de la casa (sin interés)
 
-➡️ Elegí una opción para continuar.
+👉 Escribí el número de la opción que desees.
 """
-
-def procesar_opcion_pago(opcion, numero_presupuesto):
-    """
-    Procesa la opción de pago elegida por el cliente.
-    opcion: "1", "2" o "3"
-    """
-    pedido = presupuesto.obtener_presupuesto(numero_presupuesto)
-    if not pedido:
-        return {"error": "Presupuesto no encontrado"}
-    
-    if opcion == "1":
-        return transferencia(pedido)
-    elif opcion == "2":
-        return efectivo(pedido)
-    elif opcion == "3":
-        return cuotas(pedido)
-    else:
-        return {"error": "Opción no válida"}
 
 def transferencia(pedido):
     """Maneja pago por transferencia bancaria."""
@@ -52,13 +37,11 @@ Datos para transferir:
 
 Una vez que hagas la transferencia, enviá el comprobante por este chat.
 
-➡️ Podés escribir *"Listo"* o adjuntar la foto del comprobante.
+👉 Escribí MENU para volver al inicio.
+
+¡Gracias por confiar en Carpintería Radi! 🪑
 """
-    return {
-        "tipo": "transferencia",
-        "mensaje": mensaje,
-        "estado": "Pendiente comprobante"
-    }
+    return mensaje
 
 def efectivo(pedido):
     """Maneja pago en efectivo con descuento."""
@@ -69,7 +52,7 @@ def efectivo(pedido):
     mensaje = f"""
 💰 *Pago en efectivo*
 
-Precio original: *${precio_original}*  
+Precio original: ${precio_original}  
 🎉 *Descuento por pago en efectivo: {DESCUENTO_EFECTIVO}%*  
 💰 *Total a pagar en efectivo: ${precio_final}*
 
@@ -77,14 +60,11 @@ Podés pasar por nuestro taller:
 📍 *Av. San Martín 123, Paraná*  
 ⏰ *Horario: lunes a viernes de 9 a 18 hs.*
 
-¿Confirmás el pago en efectivo? (sí / no)
+👉 Escribí MENU para volver al inicio.
+
+¡Gracias por confiar en Carpintería Radi! 🪑
 """
-    return {
-        "tipo": "efectivo",
-        "mensaje": mensaje,
-        "precio_final": precio_final,
-        "estado": "Pendiente confirmación"
-    }
+    return mensaje
 
 def cuotas(pedido):
     """Maneja pago en cuotas de la casa."""
@@ -93,56 +73,34 @@ def cuotas(pedido):
     mensaje = f"""
 💰 *Pago en cuotas de la casa*
 
+Precio total: ${precio}
+
 ¿En cuántas cuotas querés pagar?  
 3️⃣ *3 cuotas*  
 6️⃣ *6 cuotas*  
 12️⃣ *12 cuotas*
+
+👉 Escribí el número de cuotas que deseas:
 """
-    return {
-        "tipo": "cuotas",
-        "mensaje": mensaje,
-        "precio": precio,
-        "estado": "Pendiente cuotas"
-    }
+    return mensaje
 
 def procesar_cuotas(cantidad, pedido):
-    """
-    Procesa la cantidad de cuotas elegida por el cliente.
-    Calcula el valor de cada cuota y el plan de pagos.
-    """
+    """Calcula el valor de cada cuota y arma el plan de pagos."""
     precio = int(pedido['precio']) if pedido['precio'] else 0
-    interes = INTERES_CUOTA
     cantidad = int(cantidad)
     
-    # Calcular valor de cuota con interés
-    total_con_interes = precio * (1 + interes / 100)
+    # Calcular valor de cuota con interés (0% por ahora)
+    total_con_interes = precio * (1 + INTERES_CUOTA / 100)
     valor_cuota = total_con_interes / cantidad
     
-    # Si es 0% de interés, se muestra sin interés
-    if interes == 0:
-        total_con_interes = precio
-        valor_cuota = precio / cantidad
-    
-    entrega_inicial = valor_cuota
-    
     mensaje = f"""
-💰 *Plan de pagos ({cantidad} cuotas {'' if interes == 0 else f'con {interes}% de interés'} )*
+💰 *Plan de pagos ({cantidad} cuotas sin interés)*
 
-• *Entrega inicial:* ${int(entrega_inicial)}  
-• *{cantidad} cuotas de:* ${int(valor_cuota)}  
+• *Valor de cada cuota:* ${int(valor_cuota)}  
 • *Total final:* ${int(total_con_interes)}
 
-📅 *Primera cuota vence:* 30/06/2026  
-📅 *Segunda cuota vence:* 30/07/2026  
-📅 *Tercera cuota vence:* 30/08/2026
+👉 Escribí MENU para volver al inicio.
 
-¿Confirmás este plan de pagos? (sí / no)
+¡Gracias por confiar en Carpintería Radi! 🪑
 """
-    return {
-        "tipo": "cuotas",
-        "mensaje": mensaje,
-        "cantidad": cantidad,
-        "valor_cuota": int(valor_cuota),
-        "total": int(total_con_interes),
-        "estado": "Pendiente confirmación"
-    }
+    return mensaje
