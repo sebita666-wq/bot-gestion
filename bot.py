@@ -133,15 +133,21 @@ def procesar_respuesta_presupuesto(mensaje, sender):
         notificaciones.notificar_error_respuesta(codigo)
         return f"⚠️ No se encontró el presupuesto {codigo}."
     
-    # Extraer precio si lo hay (ej: $150.000 o 150000)
-    precio_match = re.search(r'[\$]?(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
-    if precio_match:
+    # --- CORRECCIÓN: Buscar el precio de forma inteligente ---
+    # Busca el número que tenga el símbolo $ adelante
+    precio_match = re.search(r'\$\s*(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
+    
+    if not precio_match:
+        # Si no hay $, busca todos los números y agarra el más grande (para evitar agarrar "6 sillas")
+        numeros = re.findall(r'\d{1,3}(?:\.\d{3})*|\d+', respuesta_texto)
+        if numeros:
+            precio_str = max(numeros, key=lambda x: int(x.replace('.', '')))
+            presupuesto.actualizar_precio(codigo, precio_str.replace('.', ''))
+    else:
         precio_str = precio_match.group(1).replace('.', '')
-        try:
-            presupuesto.actualizar_precio(codigo, precio_str)
-        except:
-            pass
-            
+        presupuesto.actualizar_precio(codigo, precio_str)
+    # --------------------------------------------------------
+
     presupuesto.actualizar_estado(codigo, presupuesto.ESTADOS["ENVIADO"])
     notificaciones.notificar_respuesta_dueño(codigo, respuesta_texto)
     
