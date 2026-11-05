@@ -58,21 +58,43 @@ Precio original: ${precio_original}
 """
 
 def cuotas(pedido, conf):
+    """Muestra el menú inicial para elegir cuotas."""
     precio = int(pedido['precio']) if pedido['precio'] else 0
-    interes = int(conf.get('interes_cuota', 0))
-    texto_interes = f"con {interes}% de interés" if interes > 0 else "sin interés"
-    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
+    cuotas_disp = conf.get('cuotas_disponibles', '3,6,12')
     
     return f"""
 💳 *Cuotas de la casa*
 
 Precio total: ${precio}
-({texto_interes})
 
 ¿En cuántas cuotas querés pagar?  
-3️⃣ *3 cuotas*  
-6️⃣ *6 cuotas*  
-12️⃣ *12 cuotas*
+👉 Opciones disponibles: *{cuotas_disp}*
 
-👉 Escribí el número de cuotas que deseas:
+Escribí el número de cuotas que deseas:
+"""
+
+def procesar_cuotas(cantidad, pedido, conf):
+    """Calcula el valor de la cuota y arma el mensaje final."""
+    precio = int(pedido['precio']) if pedido['precio'] else 0
+    interes = int(conf.get('interes_cuota', 0))
+    cantidad = int(cantidad)
+    
+    total_con_interes = precio * (1 + interes / 100)
+    valor_cuota = total_con_interes / cantidad
+    texto_interes = f"con {interes}% de interés" if interes > 0 else "sin interés"
+    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
+    
+    return f"""
+✅ *Plan de pagos confirmado*
+
+💳 *{cantidad} cuotas {texto_interes}*
+
+• *Valor de cada cuota:* ${int(valor_cuota)}  
+• *Total final:* ${int(total_con_interes)}
+
+📌 Un asesor de {nombre} se contactará para coordinar el pago.
+
+👉 Escribí MENU para volver al inicio.
+
+¡Gracias por confiar en {nombre}! ✨
 """

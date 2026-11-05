@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico (Emojis neutros)
+# Orquestador principal - 100% Genérico
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -77,6 +77,7 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_accion": return p_accion(sender, mensaje)
         if estado == "esperando_modificacion": return p_modificacion(sender, mensaje)
         if estado == "esperando_forma_pago": return p_forma_pago(sender, mensaje)
+        if estado == "esperando_cuotas": return p_cuotas(sender, mensaje) # NUEVO ESTADO
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
 
@@ -302,12 +303,38 @@ def p_forma_pago(sender, mensaje):
         msg = pagos.efectivo(pedido, conf)
     elif mensaje == "3":
         forma = "Cuotas"
-        msg = pagos.cuotas(pedido, conf)
+        # En lugar de mandar el mensaje final, pasamos al estado de elegir cuotas
+        sesiones[sender] = "esperando_cuotas"
+        return pagos.cuotas(pedido, conf) 
     else:
         return "❌ Opción no válida. Elegí 1, 2 o 3."
     
     presupuesto.actualizar_forma_pago(numero, forma)
     notificaciones.notificar_forma_pago(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, forma)
+    sesiones[sender] = None
+    datos_accion_presupuesto.pop(sender, None)
+    return msg
+
+def p_cuotas(sender, mensaje):
+    """NUEVA FUNCIÓN: Procesa la cantidad de cuotas elegida"""
+    datos = datos_accion_presupuesto.get(sender, {})
+    numero = datos.get("numero")
+    pedido = presupuesto.obtener_presupuesto(numero)
+    conf = obtener_configuracion()
+    
+    if mensaje not in ["3", "6", "12"]:
+        return "❌ Opción no válida. Elegí 3, 6 o 12 cuotas:"
+    
+    # Guardamos la cantidad de cuotas en la base de datos (columna K)
+    presupuesto.actualizar_cuotas(numero, mensaje)
+    presupuesto.actualizar_forma_pago(numero, f"Cuotas ({mensaje})")
+    
+    # Notificamos al dueño que el cliente eligió cuotas
+    notificaciones.notificar_forma_pago(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, f"Cuotas ({mensaje})")
+    
+    # Calculamos el plan de pagos
+    msg = pagos.procesar_cuotas(mensaje, pedido, conf)
+    
     sesiones[sender] = None
     datos_accion_presupuesto.pop(sender, None)
     return msg
