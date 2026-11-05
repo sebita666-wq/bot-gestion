@@ -1,10 +1,11 @@
 # bot.py
-# Orquestador principal del sistema de gestión - VERSIÓN DEFINITIVA
+# Orquestador principal del sistema de gestión - VERSIÓN DINÁMICA (LEE CONFIGURACIÓN)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
 from areas.gestion_ventas.clientes import buscar_por_dni
 from utils import config
+from utils.configuracion import obtener_configuracion
 from googleapiclient.discovery import build
 import os
 import logging
@@ -19,9 +20,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Diccionarios en memoria para guardar el estado de las conversaciones
-sesiones = {} # Para el flujo de presupuesto (paso a paso)
-datos_temporales_presupuesto = {} # Guarda producto, dni, etc.
-datos_accion_presupuesto = {} # Guarda qué presupuesto se está aceptando/rechazando
+sesiones = {}
+datos_temporales_presupuesto = {}
+datos_accion_presupuesto = {}
 
 # ============================================================
 # RUTA DE WHATSAPP (WEBHOOK)
@@ -49,7 +50,7 @@ def whatsapp():
         return "Error interno", 500
 
 # ============================================================
-# PROCESAMIENTO PRINCIPAL (EL SEMÁFORO)
+# PROCESAMIENTO PRINCIPAL
 # ============================================================
 
 def procesar_mensaje(mensaje, sender):
@@ -63,7 +64,7 @@ def procesar_mensaje(mensaje, sender):
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. VERIFICAR COMANDOS GLOBALES (MENU, CANCELAR, SALUDOS)
+    # 2. VERIFICAR COMANDOS GLOBALES
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -76,26 +77,22 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return cancelar_flujo()
     
-    # 3. VERIFICAR ESTADO DE SESIÓN ACTUAL (SI ESTÁ EN MEDIO DE UN FLUJO)
+    # 3. VERIFICAR ESTADO DE SESIÓN ACTUAL
     estado_actual = sesiones.get(sender)
     if estado_actual:
-        # Flujos de Presupuesto
         if estado_actual == "esperando_producto": return p_producto(sender, mensaje)
         if estado_actual == "esperando_personalizacion": return p_personalizacion(sender, mensaje)
         if estado_actual == "esperando_dni": return p_dni(sender, mensaje)
         if estado_actual == "esperando_nombre": return p_nombre(sender, mensaje)
         if estado_actual == "esperando_telefono": return p_telefono(sender, mensaje)
         
-        # Acciones sobre presupuesto (Aceptar/Rechazar/Modificar)
         if estado_actual == "esperando_accion": return p_accion(sender, mensaje)
         if estado_actual == "esperando_modificacion": return p_modificacion(sender, mensaje)
         if estado_actual == "esperando_forma_pago": return p_forma_pago(sender, mensaje)
         
-        # Flujo de Asesor
         if estado_actual == "esperando_consulta_asesor": 
             return asesores.procesar_consulta(sender, mensaje)
         
-        # Flujo de Consultar Estado
         if estado_actual == "esperando_dni_estado": return p_estado(sender, mensaje)
 
     # 4. VERIFICAR OPCIONES DEL MENÚ PRINCIPAL
@@ -113,7 +110,7 @@ def procesar_mensaje(mensaje, sender):
     return no_entendido()
 
 # ============================================================
-# RESPUESTAS DEL DUEÑO (PRESUPUESTO Y ASESOR)
+# RESPUESTAS DEL DUEÑO
 # ============================================================
 
 def procesar_respuesta_presupuesto(mensaje, sender):
@@ -121,7 +118,6 @@ def procesar_respuesta_presupuesto(mensaje, sender):
     if not codigo_match: return no_entendido()
     codigo = f"P-{codigo_match.group(1)}"
     
-    # Extraer el texto después del código
     partes = re.split(r'P[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
     respuesta_texto = partes[1].strip() if len(partes) > 1 else ""
     
@@ -133,12 +129,9 @@ def procesar_respuesta_presupuesto(mensaje, sender):
         notificaciones.notificar_error_respuesta(codigo)
         return f"⚠️ No se encontró el presupuesto {codigo}."
     
-    # --- CORRECCIÓN: Buscar el precio de forma inteligente ---
-    # Busca el número que tenga el símbolo $ adelante
+    # Extracción inteligente del precio
     precio_match = re.search(r'\$\s*(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
-    
     if not precio_match:
-        # Si no hay $, busca todos los números y agarra el más grande (para evitar agarrar "6 sillas")
         numeros = re.findall(r'\d{1,3}(?:\.\d{3})*|\d+', respuesta_texto)
         if numeros:
             precio_str = max(numeros, key=lambda x: int(x.replace('.', '')))
@@ -146,16 +139,13 @@ def procesar_respuesta_presupuesto(mensaje, sender):
     else:
         precio_str = precio_match.group(1).replace('.', '')
         presupuesto.actualizar_precio(codigo, precio_str)
-    # --------------------------------------------------------
 
     presupuesto.actualizar_estado(codigo, presupuesto.ESTADOS["ENVIADO"])
     notificaciones.notificar_respuesta_dueño(codigo, respuesta_texto)
     
-    # Enviar al cliente con el menú de opciones
     pedido_actualizado = presupuesto.obtener_presupuesto(codigo)
     notificaciones.notificar_presupuesto_cliente(codigo, pedido_actualizado, respuesta_texto)
     
-    # Guardar que este cliente está esperando elegir una acción
     telefono_cliente = pedido_actualizado['telefono'].replace('whatsapp:', '')
     sesiones[telefono_cliente] = "esperando_accion"
     datos_accion_presupuesto[telefono_cliente] = {"numero": codigo}
@@ -178,10 +168,8 @@ def procesar_respuesta_asesor(mensaje, sender):
         notificaciones.notificar_error_respuesta(codigo)
         return "⚠️ No se encontró la consulta."
     
-    # Reenviar al cliente usando Twilio
     notificaciones.enviar_whatsapp(cliente_telefono, f"📞 *Un asesor te responde:*\n{respuesta_texto}")
     
-    # Actualizar planilla de CONSULTAS
     try:
         service = build('sheets', 'v4', credentials=config.CREDENTIALS)
         result = service.spreadsheets().values().get(spreadsheetId=config.SPREADSHEETS["CONSULTAS"], range='A:F').execute()
@@ -196,7 +184,6 @@ def procesar_respuesta_asesor(mensaje, sender):
     except Exception as e:
         logger.error(f"Error actualizando CONSULTAS: {e}")
 
-    # Confirmación al asesor
     notificaciones.enviar_whatsapp(sender, f"✅ *Tu respuesta fue enviada al cliente*\n\n📋 Consulta: {codigo}")
     return "✅ Tu respuesta fue enviada al cliente."
 
@@ -207,8 +194,10 @@ def procesar_respuesta_asesor(mensaje, sender):
 def iniciar_presupuesto(sender):
     sesiones[sender] = "esperando_producto"
     datos_temporales_presupuesto[sender] = {}
-    return """
-🪑 *Presupuesto - Paso 1/3*
+    conf = obtener_configuracion()
+    nombre = conf.get('nombre_negocio', 'nuestro negocio')
+    return f"""
+🪑 *Presupuesto en {nombre} - Paso 1/3*
 
 📦 ¿Qué producto estás necesitando?
 *Ejemplos:* Mesa de roble, Silla rústica, Bajo mesada.
@@ -290,6 +279,8 @@ def crear_presupuesto_final(sender, cliente):
     datos = datos_temporales_presupuesto.get(sender, {})
     producto = datos.get("producto", "")
     personalizacion = datos.get("personalizacion", "")
+    conf = obtener_configuracion()
+    nombre_negocio = conf.get('nombre_negocio', 'nuestro negocio')
     
     resultado = presupuesto.crear_presupuesto(
         sender=sender, producto=producto, personalizacion=personalizacion,
@@ -311,7 +302,7 @@ def crear_presupuesto_final(sender, cliente):
 📦 Producto: {producto}
 
 📌 *¿Qué sigue?*
-Un asesor lo revisará y te responderá por este chat en las próximas 24 horas hábiles.
+Un asesor de {nombre_negocio} lo revisará y te responderá por este chat en las próximas 24 horas hábiles.
 
 👉 Escribí MENU para volver al inicio.
 💡 Podés salir tranquilo, igual te llegará la respuesta.
@@ -320,7 +311,7 @@ Un asesor lo revisará y te responderá por este chat en las próximas 24 horas 
         return "❌ Hubo un error al guardar el presupuesto. Intentá de nuevo más tarde."
 
 # ============================================================
-# ACCIONES DEL CLIENTE (ACEPTAR, RECHAZAR, MODIFICAR)
+# ACCIONES DEL CLIENTE
 # ============================================================
 
 def p_accion(sender, mensaje):
@@ -395,18 +386,17 @@ def p_forma_pago(sender, mensaje):
     datos = datos_accion_presupuesto.get(sender, {})
     numero = datos.get("numero")
     pedido = presupuesto.obtener_presupuesto(numero)
+    conf = obtener_configuracion()
     
     if mensaje == "1":
         forma = "Transferencia bancaria"
-        msg = pagos.transferencia(pedido)
+        msg = pagos.transferencia(pedido, conf)
     elif mensaje == "2":
-        forma = "Efectivo (10% desc)"
-        msg = pagos.efectivo(pedido)
+        forma = "Efectivo"
+        msg = pagos.efectivo(pedido, conf)
     elif mensaje == "3":
         forma = "Cuotas de la casa"
-        msg = pagos.cuotas(pedido)
-        # Nota: Acá faltaría el sub-flujo para elegir 3, 6 o 12 cuotas.
-        # Para simplificar esta noche, lo dejamos así y mañana lo pulimos.
+        msg = pagos.cuotas(pedido, conf)
     else:
         return "❌ Opción no válida. Elegí 1, 2 o 3."
     
@@ -418,7 +408,7 @@ def p_forma_pago(sender, mensaje):
     return msg
 
 # ============================================================
-# CONSULTAR ESTADO (OPCIÓN 2)
+# CONSULTAR ESTADO
 # ============================================================
 
 def iniciar_estado(sender):
@@ -453,8 +443,10 @@ def p_estado(sender, mensaje):
 # ============================================================
 
 def mostrar_menu():
-    return """
-👋 *Menú principal*
+    conf = obtener_configuracion()
+    nombre = conf.get('nombre_negocio', 'nuestro negocio')
+    return f"""
+👋 *Bienvenido a {nombre}*
 
 1️⃣ Presupuesto
 2️⃣ Consultar estado
