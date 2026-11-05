@@ -47,4 +47,4 @@ def get_google_credentials():
 CREDENTIALS = get_google_credentials()
 
 # Número del dueño (para notificaciones)
-NUMERO_DUENIO = "whatsapp:+5493434727811"
+NUMERO_DUENIO = "+5493434727811"
