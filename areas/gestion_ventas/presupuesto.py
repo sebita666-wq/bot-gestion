@@ -1,5 +1,5 @@
 # areas/gestion_ventas/presupuesto.py
-# Motor de presupuestos: creación, lectura, actualización de estados y precios.
+# Motor de presupuestos: creación, lectura, actualización de estados, precios y cuotas.
 
 from utils import planillas
 from utils import config
@@ -145,6 +145,20 @@ def actualizar_forma_pago(numero, forma_pago):
         return False
     except Exception as e:
         logger.error(f"❌ Error al actualizar forma de pago: {e}")
+        return False
+
+def actualizar_cuotas(numero, cantidad_cuotas):
+    """Actualiza la columna K (Cuotas) de un presupuesto."""
+    try:
+        datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
+        for i, fila in enumerate(datos):
+            if len(fila) > 0 and fila[0].strip() == numero.strip():
+                fila_excel = i + 1
+                rango_celda = f'K{fila_excel}'
+                return planillas.actualizar_celda(config.SPREADSHEETS["PEDIDOS"], rango_celda, cantidad_cuotas)
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error al actualizar cuotas: {e}")
         return False
 
 def guardar_modificacion(numero, texto_modificacion):
