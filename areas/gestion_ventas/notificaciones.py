@@ -1,7 +1,7 @@
 # areas/gestion_ventas/notificaciones.py
-# Sistema de notificaciones REAL con Twilio (Textos para dueño y cliente)
 
 from utils import config
+from utils.configuracion import obtener_configuracion
 import os
 import logging
 from twilio.rest import Client
@@ -10,39 +10,40 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 def enviar_whatsapp(destino, mensaje):
-    """Envía un mensaje de WhatsApp REAL usando Twilio."""
     try:
         account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
         auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
         from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
         
         if not account_sid or not auth_token or not from_number:
-            logger.error("❌ Faltan variables de entorno de Twilio")
             return False
         
-        # Asegurar formato del número
-        if not destino.startswith('+'):
-            destino = '+' + destino
-        if not destino.startswith('whatsapp:'):
-            destino = f'whatsapp:{destino}'
+        numero_limpio = destino.replace('whatsapp:', '').replace('+', '').strip()
+        if not numero_limpio:
+            numero_limpio = from_number.replace('whatsapp:', '').replace('+', '').strip()
+            
+        destino_final = f'whatsapp:+{numero_limpio}'
         
         client = Client(account_sid, auth_token)
         message = client.messages.create(
             from_=f'whatsapp:{from_number}',
             body=mensaje,
-            to=destino
+            to=destino_final
         )
-        logger.info(f"✅ Mensaje enviado a {destino}. SID: {message.sid}")
+        logger.info(f"✅ Mensaje enviado a {destino_final}.")
         return True
-        
     except Exception as e:
         logger.error(f"❌ Error al enviar mensaje: {e}")
         return False
 
+def obtener_duenio():
+    conf = obtener_configuracion()
+    return conf.get('telefono_duenio', config.NUMERO_DUENIO)
+
 def notificar_nuevo_presupuesto(numero_presupuesto, datos_cliente, producto, personalizacion, es_modificacion=False):
-    """Notifica al dueño cuando se crea un nuevo presupuesto o una modificación."""
     tipo = "MODIFICACIÓN" if es_modificacion else "NUEVO PRESUPUESTO"
     emoji = "✏️" if es_modificacion else "📋"
+    duenio = obtener_duenio()
     
     mensaje = f"""
 {emoji} *{tipo}*
@@ -58,10 +59,10 @@ Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 Ejemplo: {numero_presupuesto.replace('-', '')} El presupuesto es de $150.000
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_respuesta_dueño(numero_presupuesto, mensaje_respuesta):
-    """Confirma al dueño que su respuesta fue enviada al cliente."""
+    duenio = obtener_duenio()
     mensaje = f"""
 ✅ *Respuesta enviada*
 
@@ -69,10 +70,10 @@ Tu respuesta para el presupuesto {numero_presupuesto} fue enviada exitosamente a
 
 📩 El cliente recibirá tu mensaje en su chat de WhatsApp.
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_error_respuesta(numero):
-    """Notifica al dueño que no encontró el presupuesto."""
+    duenio = obtener_duenio()
     mensaje = f"""
 ❌ *Error al enviar*
 
@@ -82,11 +83,11 @@ Verificá que el código sea correcto y volvé a intentar.
 
 Ejemplo correcto: {numero.replace('-', '')} (tu mensaje)
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_presupuesto_cliente(numero_presupuesto, datos_presupuesto, mensaje_dueño, es_modificacion=False):
-    """Envía el presupuesto al cliente con las opciones de acción."""
     modificacion_texto = " (Modificado)" if es_modificacion else ""
+    nombre = datos_presupuesto.get('producto', '')
     
     mensaje = f"""
 📞 *El asesor te responde:*
@@ -107,10 +108,14 @@ Personalización: {datos_presupuesto['personalizacion']}
 
 👉 Escribí el número de la opción que desees.
 """
-    return enviar_whatsapp(datos_presupuesto['telefono'], mensaje)
+    try:
+        return enviar_whatsapp(datos_presupuesto['telefono'], mensaje)
+    except Exception as e:
+        logger.error(f"⚠️ Error al enviar presupuesto al cliente: {e}")
+        return False
 
 def notificar_aceptacion_cliente(numero_presupuesto, datos_cliente, datos_presupuesto):
-    """Notifica al dueño que el cliente aceptó el presupuesto."""
+    duenio = obtener_duenio()
     mensaje = f"""
 ✅ *Presupuesto aceptado*
 
@@ -121,10 +126,10 @@ Precio: ${datos_presupuesto['precio']}
 
 👉 El cliente aceptó el presupuesto. Esperá que elija la forma de pago.
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_rechazo_cliente(numero_presupuesto, datos_cliente, datos_presupuesto):
-    """Notifica al dueño que el cliente rechazó el presupuesto."""
+    duenio = obtener_duenio()
     mensaje = f"""
 ❌ *Presupuesto rechazado*
 
@@ -134,10 +139,10 @@ Precio ofrecido: ${datos_presupuesto['precio']}
 
 👉 El cliente rechazó el presupuesto. Esperá su decisión o contactalo para negociar.
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_modificacion_cliente(numero_presupuesto, datos_cliente, datos_presupuesto, texto_modificacion):
-    """Notifica al dueño que el cliente solicitó modificaciones."""
+    duenio = obtener_duenio()
     mensaje = f"""
 ✏️ *Solicitud de modificaciones*
 
@@ -154,10 +159,10 @@ Cambios solicitados:
 
 Ejemplo: {numero_presupuesto.replace('-', '')} Podemos hacerlo por $130.000
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
 
 def notificar_forma_pago(numero_presupuesto, datos_cliente, datos_presupuesto, forma_pago):
-    """Notifica al dueño la forma de pago elegida por el cliente."""
+    duenio = obtener_duenio()
     mensaje = f"""
 💰 *Forma de pago seleccionada*
 
@@ -169,4 +174,4 @@ Forma de pago: {forma_pago}
 
 👉 El cliente ya eligió cómo pagar. Coordiná la producción y pago.
 """
-    return enviar_whatsapp(config.NUMERO_DUENIO, mensaje)
+    return enviar_whatsapp(duenio, mensaje)
