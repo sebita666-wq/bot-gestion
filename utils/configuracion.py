@@ -1,13 +1,14 @@
 # utils/configuracion.py
-# Lee los datos de la planilla CONFIGURACIÓN para que el bot sea genérico.
+# Lee los datos de CONFIGURACIÓN con sistema de CACHÉ (memoria temporal)
 
 from utils import planillas
 from utils import config
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
-# Valores por defecto (por si la planilla falla o está vacía)
+# Valores por defecto
 CONFIG_DEFAULT = {
     "nombre_negocio": "Carpintería Radi",
     "telefono_duenio": config.NUMERO_DUENIO,
@@ -16,38 +17,48 @@ CONFIG_DEFAULT = {
     "horario_atencion": "Lunes a viernes de 9 a 18hs",
     "descuento_efectivo": "10",
     "interes_cuota": "0",
-    "timeout_asesor": "5",
+    "timeout_asesor_minutos": "5",
     "banco_transferencia": "Banco Nación",
     "cbu_transferencia": "1234567890123456789012",
     "alias_transferencia": "CARPINTERIA.RADI",
     "titular_cuenta": "Diego Pérez",
-    "web_negocio": "www.carpinteriaradi.com.ar"
+    "web_negocio": "www.carpinteriaradi.com.ar",
+    "cuotas_disponibles": "3,6,12",
+    "mensaje_bienvenida": "¡Hola! Bienvenido a Carpintería Radi"
 }
 
+# Variables para el caché
+_cache_datos = None
+_cache_tiempo = 0
+CACHE_DURACION = 300  # 5 minutos (en segundos)
+
 def obtener_configuracion():
-    """
-    Lee la planilla CONFIGURACIÓN y devuelve un diccionario con los datos.
-    Si una clave no existe, usa el valor por defecto.
-    """
-    datos = CONFIG_DEFAULT.copy()
+    """Lee la planilla CONFIGURACIÓN y devuelve un diccionario. Usa caché de 5 min."""
+    global _cache_datos, _cache_tiempo
     
+    # Si tenemos datos en caché y no pasaron 5 minutos, los devolvemos
+    if _cache_datos and (time.time() - _cache_tiempo) < CACHE_DURACION:
+        return _cache_datos.copy()
+    
+    # Si no hay caché, leemos la planilla
+    datos = CONFIG_DEFAULT.copy()
     try:
-        # Leemos las columnas A (Clave) y B (Valor)
         filas = planillas.leer_datos(config.SPREADSHEETS["CONFIGURACIÓN"], 'A:B')
         
         if filas and len(filas) > 1:
-            for fila in filas[1:]: # Salteamos el encabezado
+            for fila in filas[1:]:
                 if len(fila) >= 2:
                     clave = fila[0].strip().lower()
                     valor = fila[1].strip()
-                    
-                    # Si la clave existe en nuestro diccionario, la actualizamos
                     if clave in datos:
                         datos[clave] = valor
                         
-        logger.info(f"✅ Configuración cargada: {datos.get('nombre_negocio')}")
+        # Guardamos en caché
+        _cache_datos = datos
+        _cache_tiempo = time.time()
+        logger.info(f"✅ Configuración cargada desde Sheets y cacheada.")
         return datos
         
     except Exception as e:
         logger.error(f"❌ Error al leer CONFIGURACIÓN: {e}")
-        return datos # Devolvemos los valores por defecto si falla
+        return datos

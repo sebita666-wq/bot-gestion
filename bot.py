@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico (Orden de flujo corregido)
+# Orquestador principal - CON LIMPIEZA DE MEMORIA (Garbage Collector)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 import os
 import logging
 import re
+import gc  # IMPORTAMOS EL GARBAGE COLLECTOR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,10 @@ def whatsapp():
         import traceback
         traceback.print_exc()
         return "Error interno", 500
+    finally:
+        # LIMPIEZA DE MEMORIA: Se ejecuta siempre, haya error o no.
+        gc.collect()
+        logger.info("🧹 Memoria RAM liberada.")
 
 def procesar_mensaje(mensaje, sender):
     mensaje_lower = mensaje.lower().strip()
@@ -47,17 +52,13 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # =========================================================
-    # 1. RESPUESTAS DEL DUEÑO (Prioridad absoluta)
-    # =========================================================
+    # 1. RESPUESTAS DEL DUEÑO
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # =========================================================
-    # 2. VERIFICAR ESTADO DE SESIÓN (Antes de comandos globales)
-    # =========================================================
+    # 2. VERIFICAR ESTADO DE SESIÓN (ANTES DE COMANDOS GLOBALES)
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -72,9 +73,7 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
 
-    # =========================================================
-    # 3. COMANDOS GLOBALES (Solo si NO está en medio de un flujo)
-    # =========================================================
+    # 3. COMANDOS GLOBALES
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -87,9 +86,7 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return "❌ *Operación cancelada*\n\nHas salido del área actual.\n\n👉 Escribí MENU para volver."
     
-    # =========================================================
     # 4. OPCIONES DEL MENÚ PRINCIPAL
-    # =========================================================
     if mensaje_lower in ["1", "presupuesto"]: return iniciar_presupuesto(sender)
     if mensaje_lower in ["2", "estado"]: return iniciar_estado(sender)
     if mensaje_lower in ["3", "asesor"]:
