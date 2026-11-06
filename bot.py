@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico
+# Orquestador principal - 100% Genérico (Con diagnóstico de errores en chat)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -200,7 +200,6 @@ def p_dni(sender, mensaje):
         return "❌ *DNI inválido*\n👉 Escribilo de nuevo o CANCELAR:"
     datos_temporales_presupuesto[sender]["dni"] = mensaje
     
-    # BLINDAJE: Intentamos buscar el cliente, si falla, lo tomamos como nuevo
     try:
         cliente = buscar_por_dni(mensaje)
     except Exception as e:
@@ -230,7 +229,7 @@ def p_telefono(sender, mensaje):
     return crear_presupuesto_final(sender, cliente)
 
 def crear_presupuesto_final(sender, cliente):
-    # BLINDAJE: Envolvemos todo en try/except
+    # DIAGNÓSTICO: Si hay un error, lo mostramos en el chat
     try:
         datos = datos_temporales_presupuesto.get(sender, {})
         producto = datos.get("producto", "")
@@ -260,15 +259,14 @@ def crear_presupuesto_final(sender, cliente):
 👉 Escribí MENU para volver al inicio.
 """
         else:
-            logger.error(f"Error al crear presupuesto en módulo: {resultado}")
-            return "❌ Hubo un error al guardar el presupuesto en la planilla. Intentá de nuevo."
+            return f"❌ Error al guardar: {resultado.get('error', 'Desconocido')}"
             
     except Exception as e:
         logger.error(f"❌ CRASH EVITADO en crear_presupuesto_final: {e}")
         import traceback
         traceback.print_exc()
         sesiones[sender] = None
-        return "❌ Hubo un problema interno. Por favor, intentá de nuevo más tarde."
+        return f"❌ Error interno, enviame esto: {str(e)}"
 
 # --- ACCIONES DEL CLIENTE ---
 def p_accion(sender, mensaje):
