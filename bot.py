@@ -47,13 +47,13 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # 1. RESPUESTAS DEL DUEÑO (Prioridad máxima)
+    # 1. RESPUESTAS DEL DUEÑO
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. VERIFICAR ESTADO DE SESIÓN (Si el cliente está en medio de un flujo, va primero)
+    # 2. VERIFICAR ESTADO DE SESIÓN
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -68,7 +68,7 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
 
-    # 3. COMANDOS GLOBALES (Solo si NO está en medio de un flujo)
+    # 3. COMANDOS GLOBALES
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -199,9 +199,15 @@ def p_dni(sender, mensaje):
     if not mensaje.isdigit() or len(mensaje) < 7:
         return "❌ *DNI inválido*\n👉 Escribilo de nuevo o CANCELAR:"
     datos_temporales_presupuesto[sender]["dni"] = mensaje
-    cliente = buscar_por_dni(mensaje)
+    
+    # BLINDAJE: Intentamos buscar el cliente, si falla, lo tomamos como nuevo
+    try:
+        cliente = buscar_por_dni(mensaje)
+    except Exception as e:
+        logger.error(f"Error buscando cliente: {e}")
+        cliente = None
+        
     if cliente: 
-        # CORRECCIÓN: Si es existente, lo mandamos directo a crear el presupuesto
         return crear_presupuesto_final(sender, cliente)
     
     sesiones[sender] = "esperando_nombre"
@@ -224,27 +230,25 @@ def p_telefono(sender, mensaje):
     return crear_presupuesto_final(sender, cliente)
 
 def crear_presupuesto_final(sender, cliente):
-    datos = datos_temporales_presupuesto.get(sender, {})
-    producto = datos.get("producto", "")
-    personalizacion = datos.get("personalizacion", "")
-    conf = obtener_configuracion()
-    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
-    
-    # Nos aseguramos de tener los datos completos del cliente
-    nombre_cliente = cliente.get("nombre", "Cliente")
-    telefono_cliente = cliente.get("telefono", "")
-    
-    resultado = presupuesto.crear_presupuesto(
-        sender=sender, producto=producto, personalizacion=personalizacion,
-        dni=cliente.get("dni"), nombre=cliente.get("nombre"), telefono=cliente.get("telefono")
-    )
-    sesiones[sender] = None
-    datos_temporales_presupuesto.pop(sender, None)
-    
-    if resultado and resultado.get("estado"):
-        num = resultado["numero"]
-        notificaciones.notificar_nuevo_presupuesto(num, resultado["cliente"], producto, personalizacion)
-        return f"""
+    # BLINDAJE: Envolvemos todo en try/except
+    try:
+        datos = datos_temporales_presupuesto.get(sender, {})
+        producto = datos.get("producto", "")
+        personalizacion = datos.get("personalizacion", "")
+        conf = obtener_configuracion()
+        nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
+        
+        resultado = presupuesto.crear_presupuesto(
+            sender=sender, producto=producto, personalizacion=personalizacion,
+            dni=cliente.get("dni"), nombre=cliente.get("nombre"), telefono=cliente.get("telefono")
+        )
+        sesiones[sender] = None
+        datos_temporales_presupuesto.pop(sender, None)
+        
+        if resultado and resultado.get("estado"):
+            num = resultado["numero"]
+            notificaciones.notificar_nuevo_presupuesto(num, resultado["cliente"], producto, personalizacion)
+            return f"""
 ✅ *Presupuesto creado con éxito*
 
 📋 *Número:* {num}
@@ -255,7 +259,16 @@ def crear_presupuesto_final(sender, cliente):
 
 👉 Escribí MENU para volver al inicio.
 """
-    return "❌ Error al guardar. Intentá más tarde."
+        else:
+            logger.error(f"Error al crear presupuesto en módulo: {resultado}")
+            return "❌ Hubo un error al guardar el presupuesto en la planilla. Intentá de nuevo."
+            
+    except Exception as e:
+        logger.error(f"❌ CRASH EVITADO en crear_presupuesto_final: {e}")
+        import traceback
+        traceback.print_exc()
+        sesiones[sender] = None
+        return "❌ Hubo un problema interno. Por favor, intentá de nuevo más tarde."
 
 # --- ACCIONES DEL CLIENTE ---
 def p_accion(sender, mensaje):
