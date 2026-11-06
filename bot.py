@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico (Con diagnóstico de errores en chat)
+# Orquestador principal - 100% Genérico (Orden de flujo corregido)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -47,13 +47,17 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # 1. RESPUESTAS DEL DUEÑO
+    # =========================================================
+    # 1. RESPUESTAS DEL DUEÑO (Prioridad absoluta)
+    # =========================================================
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. VERIFICAR ESTADO DE SESIÓN
+    # =========================================================
+    # 2. VERIFICAR ESTADO DE SESIÓN (Antes de comandos globales)
+    # =========================================================
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -68,7 +72,9 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
 
-    # 3. COMANDOS GLOBALES
+    # =========================================================
+    # 3. COMANDOS GLOBALES (Solo si NO está en medio de un flujo)
+    # =========================================================
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -81,7 +87,9 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return "❌ *Operación cancelada*\n\nHas salido del área actual.\n\n👉 Escribí MENU para volver."
     
+    # =========================================================
     # 4. OPCIONES DEL MENÚ PRINCIPAL
+    # =========================================================
     if mensaje_lower in ["1", "presupuesto"]: return iniciar_presupuesto(sender)
     if mensaje_lower in ["2", "estado"]: return iniciar_estado(sender)
     if mensaje_lower in ["3", "asesor"]:
@@ -92,6 +100,10 @@ def procesar_mensaje(mensaje, sender):
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
 
     return no_entendido()
+
+# ============================================================
+# RESPUESTAS DEL DUEÑO
+# ============================================================
 
 def procesar_respuesta_presupuesto(mensaje, sender):
     codigo_match = re.search(r'P[-]?(\d{4})', mensaje.upper())
@@ -168,7 +180,10 @@ def procesar_respuesta_asesor(mensaje, sender):
     notificaciones.enviar_whatsapp(sender, f"✅ *Tu respuesta fue enviada al cliente*\n\n📋 Consulta: {codigo}")
     return "✅ Tu respuesta fue enviada al cliente."
 
-# --- FLUJO DE PRESUPUESTO ---
+# ============================================================
+# FLUJO DE PRESUPUESTO
+# ============================================================
+
 def iniciar_presupuesto(sender):
     sesiones[sender] = "esperando_producto"
     datos_temporales_presupuesto[sender] = {}
@@ -199,13 +214,7 @@ def p_dni(sender, mensaje):
     if not mensaje.isdigit() or len(mensaje) < 7:
         return "❌ *DNI inválido*\n👉 Escribilo de nuevo o CANCELAR:"
     datos_temporales_presupuesto[sender]["dni"] = mensaje
-    
-    try:
-        cliente = buscar_por_dni(mensaje)
-    except Exception as e:
-        logger.error(f"Error buscando cliente: {e}")
-        cliente = None
-        
+    cliente = buscar_por_dni(mensaje)
     if cliente: 
         return crear_presupuesto_final(sender, cliente)
     
@@ -229,7 +238,6 @@ def p_telefono(sender, mensaje):
     return crear_presupuesto_final(sender, cliente)
 
 def crear_presupuesto_final(sender, cliente):
-    # DIAGNÓSTICO: Si hay un error, lo mostramos en el chat
     try:
         datos = datos_temporales_presupuesto.get(sender, {})
         producto = datos.get("producto", "")
@@ -268,7 +276,10 @@ def crear_presupuesto_final(sender, cliente):
         sesiones[sender] = None
         return f"❌ Error interno, enviame esto: {str(e)}"
 
-# --- ACCIONES DEL CLIENTE ---
+# ============================================================
+# ACCIONES DEL CLIENTE
+# ============================================================
+
 def p_accion(sender, mensaje):
     datos = datos_accion_presupuesto.get(sender, {})
     numero = datos.get("numero")
@@ -349,7 +360,10 @@ def p_cuotas(sender, mensaje):
     datos_accion_presupuesto.pop(sender, None)
     return msg
 
-# --- ESTADO ---
+# ============================================================
+# CONSULTAR ESTADO
+# ============================================================
+
 def iniciar_estado(sender):
     sesiones[sender] = "esperando_dni_estado"
     return "🔍 *Consultar estado*\n\n👉 Escribí tu DNI o CUIT:"
@@ -366,7 +380,10 @@ def p_estado(sender, mensaje):
         msj += f"📋 *{p['numero']}*\n📦 {p['producto']}\n📌 {p['estado']}\n---\n"
     return msj
 
-# --- UTILS ---
+# ============================================================
+# UTILIDADES
+# ============================================================
+
 def mostrar_menu():
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
