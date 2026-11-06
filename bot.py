@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - CON LIMPIEZA DE MEMORIA (Garbage Collector)
+# Orquestador principal - 100% Genérico (Con validación de teléfono y memoria optimizada)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 import os
 import logging
 import re
-import gc  # IMPORTAMOS EL GARBAGE COLLECTOR
+import gc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,9 +42,7 @@ def whatsapp():
         traceback.print_exc()
         return "Error interno", 500
     finally:
-        # LIMPIEZA DE MEMORIA: Se ejecuta siempre, haya error o no.
-        gc.collect()
-        logger.info("🧹 Memoria RAM liberada.")
+        gc.collect() # Libera memoria RAM en cada mensaje
 
 def procesar_mensaje(mensaje, sender):
     mensaje_lower = mensaje.lower().strip()
@@ -58,7 +56,7 @@ def procesar_mensaje(mensaje, sender):
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. VERIFICAR ESTADO DE SESIÓN (ANTES DE COMANDOS GLOBALES)
+    # 2. VERIFICAR ESTADO DE SESIÓN
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -86,7 +84,7 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return "❌ *Operación cancelada*\n\nHas salido del área actual.\n\n👉 Escribí MENU para volver."
     
-    # 4. OPCIONES DEL MENÚ PRINCIPAL
+    # 4. OPCIONES DEL MENÚ
     if mensaje_lower in ["1", "presupuesto"]: return iniciar_presupuesto(sender)
     if mensaje_lower in ["2", "estado"]: return iniciar_estado(sender)
     if mensaje_lower in ["3", "asesor"]:
@@ -224,13 +222,14 @@ def p_nombre(sender, mensaje):
     return "📞 *Un paso más*\n\n📱 ¿Cuál es tu teléfono?\n👉 Escribilo:"
 
 def p_telefono(sender, mensaje):
-    if not mensaje.isdigit() or len(mensaje) < 7:
-        return "❌ *Teléfono inválido*\n👉 Escribilo de nuevo:"
-    datos_temporales_presupuesto[sender]["telefono"] = mensaje
+    # --- CORRECCIÓN: Usamos el número real de WhatsApp (sender) ---
+    numero_real = sender.replace('whatsapp:', '').strip()
+    datos_temporales_presupuesto[sender]["telefono"] = numero_real
+    
     cliente = {
         "dni": datos_temporales_presupuesto[sender].get("dni", ""),
         "nombre": datos_temporales_presupuesto[sender].get("nombre", ""),
-        "telefono": datos_temporales_presupuesto[sender].get("telefono", "")
+        "telefono": numero_real
     }
     return crear_presupuesto_final(sender, cliente)
 
