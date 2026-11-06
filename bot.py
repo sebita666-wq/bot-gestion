@@ -47,13 +47,13 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # 1. RESPUESTAS DEL DUEÑO (Prioridad máxima)
+    # 1. RESPUESTAS DEL DUEÑO
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # 2. VERIFICAR ESTADO DE SESIÓN (Si el cliente está en medio de un flujo, va primero)
+    # 2. VERIFICAR ESTADO DE SESIÓN
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -68,7 +68,7 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
 
-    # 3. COMANDOS GLOBALES (Solo si NO está en medio de un flujo)
+    # 3. COMANDOS GLOBALES
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -201,6 +201,7 @@ def p_dni(sender, mensaje):
     datos_temporales_presupuesto[sender]["dni"] = mensaje
     cliente = buscar_por_dni(mensaje)
     if cliente: 
+        # CORRECCIÓN: Aseguramos que el diccionario cliente tenga todos los datos
         return crear_presupuesto_final(sender, cliente)
     
     sesiones[sender] = "esperando_nombre"
@@ -229,6 +230,11 @@ def crear_presupuesto_final(sender, cliente):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
+    # CORRECCIÓN: Si el cliente vino de la base de datos (existente), 
+    # nos aseguramos de tener su nombre y teléfono para el mensaje
+    nombre_cliente = cliente.get("nombre", "Cliente")
+    telefono_cliente = cliente.get("telefono", "")
+    
     resultado = presupuesto.crear_presupuesto(
         sender=sender, producto=producto, personalizacion=personalizacion,
         dni=cliente.get("dni"), nombre=cliente.get("nombre"), telefono=cliente.get("telefono")
@@ -238,7 +244,10 @@ def crear_presupuesto_final(sender, cliente):
     
     if resultado and resultado.get("estado"):
         num = resultado["numero"]
+        # Notificamos al dueño
         notificaciones.notificar_nuevo_presupuesto(num, resultado["cliente"], producto, personalizacion)
+        
+        # Respondemos al cliente
         return f"""
 ✅ *Presupuesto creado con éxito*
 
