@@ -1,5 +1,5 @@
 # areas/gestion_ventas/presupuesto.py
-# Motor de presupuestos: creación, lectura, actualización de estados, precios y cuotas.
+# Motor de presupuestos: creación, lectura, actualización de estados, precios, cuotas y pendientes.
 
 from utils import planillas
 from utils import config
@@ -44,7 +44,6 @@ def generar_numero_presupuesto():
 
 def crear_presupuesto(sender, producto, personalizacion, dni=None, nombre=None, telefono=None):
     """Crea un nuevo presupuesto en la planilla PEDIDOS."""
-    # 1. Identificar o crear al cliente
     cliente = None
     if dni:
         cliente = clientes.buscar_por_dni(dni)
@@ -58,11 +57,9 @@ def crear_presupuesto(sender, producto, personalizacion, dni=None, nombre=None, 
     else:
         return {"error": "Falta DNI", "estado": False}
     
-    # 2. Generar número de presupuesto
     numero_presupuesto = generar_numero_presupuesto()
-    
-    # 3. Guardar en PEDIDOS (A:M son 13 columnas)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     nuevo_pedido = [[
         numero_presupuesto, fecha, cliente["dni"], cliente["nombre"], cliente["telefono"],
         producto, personalizacion, 
@@ -192,3 +189,33 @@ def obtener_presupuestos_por_dni(dni):
                 "precio": fila[7] if len(fila) > 7 else ""
             })
     return resultados
+
+# ============================================================
+# NUEVA FUNCIÓN: OBTENER PENDIENTES POR TELÉFONO (OPCIÓN 5)
+# ============================================================
+def obtener_presupuestos_pendientes(telefono):
+    """
+    Busca presupuestos que estén pendientes (Enviados o Aceptados) para un teléfono.
+    """
+    try:
+        datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
+        if not datos or len(datos) < 2:
+            return []
+        
+        resultados = []
+        telefono_limpio = telefono.replace('whatsapp:', '').strip()
+        
+        for fila in datos[1:]:
+            if len(fila) > 4 and telefono_limpio in fila[4]:
+                estado = fila[8] if len(fila) > 8 else ""
+                if estado in ["Enviado al cliente", "Aceptado por cliente"]:
+                    resultados.append({
+                        "numero": fila[0],
+                        "producto": fila[5],
+                        "precio": fila[7],
+                        "estado": estado
+                    })
+        return resultados
+    except Exception as e:
+        logger.error(f"❌ Error al buscar presupuestos pendientes: {e}")
+        return []
