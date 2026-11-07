@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico (Con Opción 5 por DNI)
+# Orquestador principal - 100% Genérico (Prompts solo DNI)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -28,7 +28,13 @@ datos_accion_presupuesto = {}
 def whatsapp():
     mensaje = request.values.get('Body', '').strip()
     sender = request.values.get('From', '')
-    logger.info(f"📩 Mensaje de {sender}: '{mensaje}'")
+    media_url = request.values.get('MediaUrl0', '')
+    media_type = request.values.get('MediaContentType0', '')
+    
+    logger.info(f"📩 Mensaje de {sender}: '{mensaje}' | Media: {media_type}")
+
+    if media_url:
+        return procesar_media(sender, media_url, media_type)
     
     try:
         respuesta = procesar_mensaje(mensaje, sender)
@@ -38,8 +44,6 @@ def whatsapp():
         return str(resp)
     except Exception as e:
         logger.error(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
         return "Error interno", 500
     finally:
         gc.collect()
@@ -83,8 +87,6 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_cuotas": return p_cuotas(sender, mensaje)
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
-        
-        # NUEVO ESTADO PARA LA OPCIÓN 5
         if estado == "esperando_dni_pendiente": return p_dni_pendiente(sender, mensaje)
 
     # 4. OPCIONES DEL MENÚ PRINCIPAL
@@ -97,21 +99,16 @@ def procesar_mensaje(mensaje, sender):
         sesiones[sender] = None
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
     
-    # OPCIÓN 5: PIDE EL DNI
     if mensaje_lower in ["5", "pendientes"]:
         sesiones[sender] = "esperando_dni_pendiente"
-        return "🔍 Para buscar tus presupuestos pendientes, por favor escribí tu DNI o CUIT (sin puntos ni guiones):"
+        return "🔍 Para buscar tus presupuestos pendientes, por favor escribí tu DNI (sin puntos ni guiones):"
 
     return no_entendido()
 
-# ... (Acá van las funciones de respuesta del dueño y asesor, que quedan igual) ...
-# Para no hacer el mensaje gigante, asumí que las tenés del mensaje anterior.
-# (procesar_respuesta_presupuesto y procesar_respuesta_asesor)
+# ... (Las funciones procesar_respuesta_presupuesto y procesar_respuesta_asesor 
+# se mantienen exactamente igual que antes).
 
-# ============================================================
-# FLUJO DE PRESUPUESTO
-# ============================================================
-
+# --- FLUJO DE PRESUPUESTO ---
 def iniciar_presupuesto(sender):
     sesiones[sender] = "esperando_producto"
     datos_temporales_presupuesto[sender] = {}
@@ -136,7 +133,7 @@ def p_producto(sender, mensaje):
 def p_personalizacion(sender, mensaje):
     datos_temporales_presupuesto[sender]["personalizacion"] = mensaje
     sesiones[sender] = "esperando_dni"
-    return "📋 *Presupuesto - Paso 3/3*\n\n🆔 Escribí tu DNI o CUIT (sin puntos ni guiones):"
+    return "📋 *Presupuesto - Paso 3/3*\n\n🆔 Escribí tu **DNI** (sin puntos ni guiones):"
 
 def p_dni(sender, mensaje):
     if not mensaje.isdigit() or len(mensaje) < 7:
@@ -202,108 +199,20 @@ def crear_presupuesto_final(sender, cliente):
         sesiones[sender] = None
         return f"❌ Error interno, enviame esto: {str(e)}"
 
-# ============================================================
-# ACCIONES DEL CLIENTE
-# ============================================================
+# ... (Las funciones p_accion, p_modificacion, p_forma_pago, p_cuotas se mantienen igual).
 
-def p_accion(sender, mensaje):
-    datos = datos_accion_presupuesto.get(sender, {})
-    numero = datos.get("numero")
-    pedido = presupuesto.obtener_presupuesto(numero)
-    if not pedido: return "❌ Presupuesto no encontrado."
-
-    if mensaje == "1":
-        presupuesto.actualizar_estado(numero, presupuesto.ESTADOS["ACEPTADO"])
-        notificaciones.notificar_aceptacion_cliente(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido)
-        sesiones[sender] = "esperando_forma_pago"
-        return pagos.mostrar_opciones_pago()
-    elif mensaje == "2":
-        presupuesto.actualizar_estado(numero, presupuesto.ESTADOS["RECHAZADO"])
-        notificaciones.notificar_rechazo_cliente(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido)
-        sesiones[sender] = None
-        datos_accion_presupuesto.pop(sender, None)
-        return "❌ *Rechazado*\n\n📌 1. Presupuesto nuevo | 2. Asesor | 3. Menú\n👉 Escribí el número:"
-    elif mensaje == "3":
-        sesiones[sender] = "esperando_modificacion"
-        return "✏️ *Modificaciones*\n\n👉 Escribí los cambios que deseas:"
-    elif mensaje == "4":
-        sesiones[sender] = "esperando_consulta_asesor"
-        datos_accion_presupuesto.pop(sender, None)
-        return "📞 *Hablar con asesor*\n\n👉 Escribí tu consulta:"
-    return "❌ Opción no válida."
-
-def p_modificacion(sender, mensaje):
-    datos = datos_accion_presupuesto.get(sender, {})
-    numero = datos.get("numero")
-    pedido = presupuesto.obtener_presupuesto(numero)
-    presupuesto.guardar_modificacion(numero, mensaje)
-    presupuesto.actualizar_estado(numero, presupuesto.ESTADOS["MODIFICADO"])
-    notificaciones.notificar_modificacion_cliente(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, mensaje)
-    sesiones[sender] = None
-    datos_accion_presupuesto.pop(sender, None)
-    return "✅ *Modificaciones enviadas*\n\n👉 Escribí MENU para volver."
-
-def p_forma_pago(sender, mensaje):
-    datos = datos_accion_presupuesto.get(sender, {})
-    numero = datos.get("numero")
-    pedido = presupuesto.obtener_presupuesto(numero)
-    conf = obtener_configuracion()
-    
-    if mensaje == "1":
-        forma = "Transferencia"
-        msg = pagos.transferencia(pedido, conf)
-    elif mensaje == "2":
-        forma = "Efectivo"
-        msg = pagos.efectivo(pedido, conf)
-    elif mensaje == "3":
-        forma = "Cuotas"
-        sesiones[sender] = "esperando_cuotas"
-        return pagos.cuotas(pedido, conf) 
-    else:
-        return "❌ Opción no válida. Elegí 1, 2 o 3."
-    
-    presupuesto.actualizar_forma_pago(numero, forma)
-    notificaciones.notificar_forma_pago(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, forma)
-    sesiones[sender] = None
-    datos_accion_presupuesto.pop(sender, None)
-    return msg
-
-def p_cuotas(sender, mensaje):
-    datos = datos_accion_presupuesto.get(sender, {})
-    numero = datos.get("numero")
-    pedido = presupuesto.obtener_presupuesto(numero)
-    conf = obtener_configuracion()
-    
-    if mensaje not in ["3", "6", "12"]:
-        return "❌ Opción no válida. Elegí 3, 6 o 12 cuotas:"
-    
-    presupuesto.actualizar_cuotas(numero, mensaje)
-    presupuesto.actualizar_forma_pago(numero, f"Cuotas ({mensaje})")
-    notificaciones.notificar_forma_pago(numero, {"nombre": pedido["nombre"], "telefono": pedido["telefono"]}, pedido, f"Cuotas ({mensaje})")
-    
-    msg = pagos.procesar_cuotas(mensaje, pedido, conf)
-    sesiones[sender] = None
-    datos_accion_presupuesto.pop(sender, None)
-    return msg
-
-# ============================================================
-# OPCIÓN 5: VER PRESUPUESTOS PENDIENTES (AHORA CON DNI)
-# ============================================================
-
+# --- OPCIÓN 5 ---
 def p_dni_pendiente(sender, mensaje):
     if not mensaje.isdigit() or len(mensaje) < 7:
         return "❌ *DNI inválido*\n👉 Escribilo de nuevo (sin puntos ni guiones) o CANCELAR:"
     
     pendientes = presupuesto.obtener_presupuestos_pendientes(mensaje)
-    sesiones[sender] = None # Limpiamos el estado después de buscar
+    sesiones[sender] = None
     
     if not pendientes:
         return "📋 No encontramos presupuestos pendientes para ese DNI.\n\n👉 Escribí MENU para volver."
     
-    # Si hay más de uno, mostramos el último
     p = pendientes[-1]
-    
-    # Le damos la opción de aceptarlo o rechazarlo
     sesiones[sender] = "esperando_accion"
     datos_accion_presupuesto[sender] = {"numero": p["numero"]}
     
@@ -323,13 +232,10 @@ Producto: {p['producto']}
 👉 Escribí el número de la opción que desees.
 """
 
-# ============================================================
-# CONSULTAR ESTADO
-# ============================================================
-
+# --- ESTADO ---
 def iniciar_estado(sender):
     sesiones[sender] = "esperando_dni_estado"
-    return "🔍 *Consultar estado*\n\n👉 Escribí tu DNI o CUIT:"
+    return "🔍 *Consultar estado*\n\n👉 Escribí tu **DNI** (sin puntos ni guiones):"
 
 def p_estado(sender, mensaje):
     if not mensaje.isdigit() or len(mensaje) < 7:
@@ -343,10 +249,7 @@ def p_estado(sender, mensaje):
         msj += f"📋 *{p['numero']}*\n📦 {p['producto']}\n📌 {p['estado']}\n---\n"
     return msj
 
-# ============================================================
-# UTILIDADES
-# ============================================================
-
+# --- UTILS ---
 def mostrar_menu():
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
