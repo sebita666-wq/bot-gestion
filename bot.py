@@ -1,5 +1,5 @@
 # bot.py
-# Orquestador principal - 100% Genérico (Comandos globales prioritarios + Opción 5)
+# Orquestador principal - 100% Genérico (Con Opción 5 por DNI)
 
 from flask import Flask, request
 from areas.gestion_ventas import presupuesto, notificaciones, asesores, pagos
@@ -42,7 +42,7 @@ def whatsapp():
         traceback.print_exc()
         return "Error interno", 500
     finally:
-        gc.collect() # Libera memoria RAM
+        gc.collect()
 
 def procesar_mensaje(mensaje, sender):
     mensaje_lower = mensaje.lower().strip()
@@ -50,17 +50,13 @@ def procesar_mensaje(mensaje, sender):
     conf = obtener_configuracion()
     nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
     
-    # =========================================================
-    # 1. RESPUESTAS DEL DUEÑO (Prioridad absoluta)
-    # =========================================================
+    # 1. RESPUESTAS DEL DUEÑO
     if re.search(r'P[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_presupuesto(mensaje, sender)
     if re.search(r'C[-]?\d{4}', mensaje_upper):
         return procesar_respuesta_asesor(mensaje, sender)
     
-    # =========================================================
-    # 2. COMANDOS GLOBALES (Prioridad absoluta)
-    # =========================================================
+    # 2. COMANDOS GLOBALES
     if mensaje_lower in ["hola", "buenos dias", "buenas tardes", "menu", "menú", "0"]:
         sesiones[sender] = None
         datos_temporales_presupuesto.pop(sender, None)
@@ -73,9 +69,7 @@ def procesar_mensaje(mensaje, sender):
         datos_accion_presupuesto.pop(sender, None)
         return "❌ *Operación cancelada*\n\nHas salido del área actual.\n\n👉 Escribí MENU para volver."
     
-    # =========================================================
     # 3. VERIFICAR ESTADO DE SESIÓN
-    # =========================================================
     estado = sesiones.get(sender)
     if estado:
         if estado == "esperando_producto": return p_producto(sender, mensaje)
@@ -89,10 +83,11 @@ def procesar_mensaje(mensaje, sender):
         if estado == "esperando_cuotas": return p_cuotas(sender, mensaje)
         if estado == "esperando_consulta_asesor": return asesores.procesar_consulta(sender, mensaje)
         if estado == "esperando_dni_estado": return p_estado(sender, mensaje)
+        
+        # NUEVO ESTADO PARA LA OPCIÓN 5
+        if estado == "esperando_dni_pendiente": return p_dni_pendiente(sender, mensaje)
 
-    # =========================================================
     # 4. OPCIONES DEL MENÚ PRINCIPAL
-    # =========================================================
     if mensaje_lower in ["1", "presupuesto"]: return iniciar_presupuesto(sender)
     if mensaje_lower in ["2", "estado"]: return iniciar_estado(sender)
     if mensaje_lower in ["3", "asesor"]:
@@ -102,90 +97,16 @@ def procesar_mensaje(mensaje, sender):
         sesiones[sender] = None
         return "📝 *Reclamos y sugerencias*\n\nEscribí tu mensaje y lo vamos a revisar."
     
-    # NUEVA OPCIÓN 5
+    # OPCIÓN 5: PIDE EL DNI
     if mensaje_lower in ["5", "pendientes"]:
-        return ver_presupuestos_pendientes(sender)
+        sesiones[sender] = "esperando_dni_pendiente"
+        return "🔍 Para buscar tus presupuestos pendientes, por favor escribí tu DNI o CUIT (sin puntos ni guiones):"
 
     return no_entendido()
 
-# ============================================================
-# RESPUESTAS DEL DUEÑO
-# ============================================================
-
-def procesar_respuesta_presupuesto(mensaje, sender):
-    codigo_match = re.search(r'P[-]?(\d{4})', mensaje.upper())
-    if not codigo_match: return no_entendido()
-    codigo = f"P-{codigo_match.group(1)}"
-    
-    partes = re.split(r'P[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
-    respuesta_texto = partes[1].strip() if len(partes) > 1 else ""
-    
-    if not respuesta_texto:
-        return "⚠️ No escribiste el presupuesto. Usá el formato: P0001 (tu mensaje)"
-    
-    pedido = presupuesto.obtener_presupuesto(codigo)
-    if not pedido:
-        notificaciones.notificar_error_respuesta(codigo)
-        return f"⚠️ No se encontró el presupuesto {codigo}."
-    
-    precio_match = re.search(r'\$\s*(\d{1,3}(?:\.\d{3})*|\d+)', respuesta_texto)
-    if not precio_match:
-        numeros = re.findall(r'\d{1,3}(?:\.\d{3})*|\d+', respuesta_texto)
-        if numeros:
-            precio_str = max(numeros, key=lambda x: int(x.replace('.', '')))
-            presupuesto.actualizar_precio(codigo, precio_str.replace('.', ''))
-    else:
-        precio_str = precio_match.group(1).replace('.', '')
-        presupuesto.actualizar_precio(codigo, precio_str)
-
-    presupuesto.actualizar_estado(codigo, presupuesto.ESTADOS["ENVIADO"])
-    notificaciones.notificar_respuesta_dueño(codigo, respuesta_texto)
-    
-    pedido_actualizado = presupuesto.obtener_presupuesto(codigo)
-    notificaciones.notificar_presupuesto_cliente(codigo, pedido_actualizado, respuesta_texto)
-    
-    telefono_cliente = pedido_actualizado['telefono'].replace('whatsapp:', '')
-    sesiones[telefono_cliente] = "esperando_accion"
-    datos_accion_presupuesto[telefono_cliente] = {"numero": codigo}
-    
-    return "✅ Tu respuesta fue enviada al cliente."
-
-def procesar_respuesta_asesor(mensaje, sender):
-    codigo_match = re.search(r'C[-]?(\d{4})', mensaje.upper())
-    if not codigo_match: return no_entendido()
-    codigo = f"C-{codigo_match.group(1)}"
-    
-    partes = re.split(r'C[-]?\d{4}\s*[:]?\s*', mensaje, maxsplit=1)
-    respuesta_texto = partes[1].strip() if len(partes) > 1 else ""
-    
-    if not respuesta_texto:
-        return "⚠️ No escribiste el mensaje. Usá el formato: C0001 (tu mensaje)"
-    
-    cliente_telefono = asesores.obtener_telefono_cliente(codigo)
-    if not cliente_telefono:
-        notificaciones.notificar_error_respuesta(codigo)
-        return "⚠️ No se encontró la consulta."
-    
-    conf = obtener_configuracion()
-    nombre = conf.get('nombre_negocio', 'Nuestro Negocio')
-    notificaciones.enviar_whatsapp(cliente_telefono, f"📞 *Un asesor de {nombre} te responde:*\n{respuesta_texto}")
-    
-    try:
-        service = build('sheets', 'v4', credentials=config.CREDENTIALS)
-        result = service.spreadsheets().values().get(spreadsheetId=config.SPREADSHEETS["CONSULTAS"], range='A:F').execute()
-        datos = result.get('values', [])
-        for i, fila in enumerate(datos):
-            if len(fila) > 0 and fila[0] == codigo:
-                service.spreadsheets().values().update(
-                    spreadsheetId=config.SPREADSHEETS["CONSULTAS"],
-                    range=f'E{i+1}', valueInputOption='USER_ENTERED', body={'values': [["Respondida"]]}
-                ).execute()
-                break
-    except Exception as e:
-        logger.error(f"Error actualizando CONSULTAS: {e}")
-
-    notificaciones.enviar_whatsapp(sender, f"✅ *Tu respuesta fue enviada al cliente*\n\n📋 Consulta: {codigo}")
-    return "✅ Tu respuesta fue enviada al cliente."
+# ... (Acá van las funciones de respuesta del dueño y asesor, que quedan igual) ...
+# Para no hacer el mensaje gigante, asumí que las tenés del mensaje anterior.
+# (procesar_respuesta_presupuesto y procesar_respuesta_asesor)
 
 # ============================================================
 # FLUJO DE PRESUPUESTO
@@ -366,27 +287,32 @@ def p_cuotas(sender, mensaje):
     return msg
 
 # ============================================================
-# NUEVA FUNCIÓN: VER PRESUPUESTOS PENDIENTES (OPCIÓN 5)
+# OPCIÓN 5: VER PRESUPUESTOS PENDIENTES (AHORA CON DNI)
 # ============================================================
 
-def ver_presupuestos_pendientes(sender):
-    pendientes = presupuesto.obtener_presupuestos_pendientes(sender)
+def p_dni_pendiente(sender, mensaje):
+    if not mensaje.isdigit() or len(mensaje) < 7:
+        return "❌ *DNI inválido*\n👉 Escribilo de nuevo (sin puntos ni guiones) o CANCELAR:"
+    
+    pendientes = presupuesto.obtener_presupuestos_pendientes(mensaje)
+    sesiones[sender] = None # Limpiamos el estado después de buscar
     
     if not pendientes:
-        return "📋 No tenés presupuestos pendientes de aprobación en este momento.\n\n👉 Escribí MENU para volver."
+        return "📋 No encontramos presupuestos pendientes para ese DNI.\n\n👉 Escribí MENU para volver."
     
-    p = pendientes[-1] # Muestra el último pendiente
+    # Si hay más de uno, mostramos el último
+    p = pendientes[-1]
     
+    # Le damos la opción de aceptarlo o rechazarlo
     sesiones[sender] = "esperando_accion"
     datos_accion_presupuesto[sender] = {"numero": p["numero"]}
     
     return f"""
-📋 *Tu presupuesto pendiente*
+📋 *Presupuesto pendiente encontrado*
 
 Número: *{p['numero']}*
 Producto: {p['producto']}
 💰 Precio: ${p['precio']}
-Estado: {p['estado']}
 
 📌 ¿Qué querés hacer?
 

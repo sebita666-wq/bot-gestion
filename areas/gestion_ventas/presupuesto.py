@@ -191,11 +191,11 @@ def obtener_presupuestos_por_dni(dni):
     return resultados
 
 # ============================================================
-# NUEVA FUNCIÓN: OBTENER PENDIENTES POR TELÉFONO (OPCIÓN 5)
+# NUEVA FUNCIÓN: OBTENER PENDIENTES POR DNI (OPCIÓN 5)
 # ============================================================
-def obtener_presupuestos_pendientes(telefono):
+def obtener_presupuestos_pendientes(dni):
     """
-    Busca presupuestos que estén pendientes (Enviados o Aceptados) para un teléfono.
+    Busca presupuestos que estén pendientes (Enviados o Aceptados) para un DNI.
     """
     try:
         datos = planillas.leer_datos(config.SPREADSHEETS["PEDIDOS"], 'A:M')
@@ -203,10 +203,11 @@ def obtener_presupuestos_pendientes(telefono):
             return []
         
         resultados = []
-        telefono_limpio = telefono.replace('whatsapp:', '').strip()
+        dni_limpio = str(dni).strip()
         
         for fila in datos[1:]:
-            if len(fila) > 4 and telefono_limpio in fila[4]:
+            # Comparamos el DNI (columna C, índice 2)
+            if len(fila) > 2 and fila[2].strip() == dni_limpio:
                 estado = fila[8] if len(fila) > 8 else ""
                 if estado in ["Enviado al cliente", "Aceptado por cliente"]:
                     resultados.append({
